@@ -1,5 +1,11 @@
-const CACHE_NAME = 'task-manager-pwa-v1'
-const APP_SHELL_URLS = ['/', '/manifest.webmanifest', '/pwa-icon-192.svg', '/pwa-icon-512.svg', '/apple-touch-icon.svg']
+const CACHE_NAME = 'task-manager-pwa-v2'
+const APP_SHELL_URLS = [
+  '/',
+  '/manifest.webmanifest',
+  '/pwa-icon-192.png',
+  '/pwa-icon-512.png',
+  '/apple-touch-icon.png',
+]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
