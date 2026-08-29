@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180" role="img" aria-label="משימות משפחתיות">
+  <rect width="180" height="180" rx="40" fill="#4f46e5"/>
+  <rect x="26" y="26" width="128" height="128" rx="30" fill="#ffffff" fill-opacity="0.14"/>
+  <circle cx="60" cy="66" r="10" fill="#ffffff"/>
+  <circle cx="90" cy="66" r="10" fill="#ffffff"/>
+  <circle cx="120" cy="66" r="10" fill="#ffffff"/>
+  <path d="M55 98l18 18 35-40" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="50" y="128" width="80" height="10" rx="5" fill="#ffffff" fill-opacity="0.9"/>
+</svg>
