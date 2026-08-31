@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import familyTasksLogo from './images/1.jpeg'
 import { ParentDashboard } from './pages/ParentDashboard'
 import { ChildDashboard } from './pages/ChildDashboard'
 import { NotificationCenter } from './components/NotificationCenter'
@@ -9,10 +10,13 @@ import { appName, appTagline } from './utils/constants'
 function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authView, setAuthView] = useState<'landing' | 'login'>('landing')
   const [authError, setAuthError] = useState('')
   const [email, setEmail] = useState(import.meta.env.VITE_TEST_PARENT_A_EMAIL ?? '')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isResolvingRole, setIsResolvingRole] = useState(false)
+  const [resolvedDashboardRole, setResolvedDashboardRole] = useState<'parent' | 'child' | null>(null)
 
   const {
     familyName,
@@ -33,10 +37,36 @@ function App() {
     markNotificationRead,
     markAllNotificationsRead,
     currentUserRole,
+    currentUserName,
     authReady,
   } = useFamilyTasks()
   const child = members.find((member) => member.role === 'child') ?? members[0]
-  const isParentDashboard = currentUserRole === 'parent'
+  const isParentDashboard = resolvedDashboardRole === 'parent' || currentUserRole === 'parent'
+
+  async function resolveAuthenticatedMembershipRole(): Promise<'parent' | 'child' | null> {
+    const supabase = getSupabaseClient()
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      return null
+    }
+
+    const { data: memberships, error: membershipsError } = await supabase
+      .from('family_members')
+      .select('role, family_id')
+      .eq('user_id', user.id)
+      .order('joined_at', { ascending: true })
+
+    if (membershipsError || !memberships || memberships.length === 0) {
+      return null
+    }
+
+    const firstMembershipRole = memberships[0]?.role
+    return firstMembershipRole === 'parent' ? 'parent' : 'child'
+  }
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -47,6 +77,14 @@ function App() {
       } = await supabase.auth.getSession()
 
       setIsAuthenticated(Boolean(session))
+      if (!session) {
+        setResolvedDashboardRole(null)
+        setIsCheckingSession(false)
+        return
+      }
+
+      const nextRole = await resolveAuthenticatedMembershipRole()
+      setResolvedDashboardRole(nextRole)
       setIsCheckingSession(false)
     }
 
@@ -56,7 +94,17 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthenticated(Boolean(session))
-      setIsCheckingSession(false)
+      if (!session) {
+        setResolvedDashboardRole(null)
+        setIsCheckingSession(false)
+        return
+      }
+
+      void (async () => {
+        const nextRole = await resolveAuthenticatedMembershipRole()
+        setResolvedDashboardRole(nextRole)
+        setIsCheckingSession(false)
+      })()
     })
 
     return () => {
@@ -73,6 +121,7 @@ function App() {
     }
 
     setIsSubmitting(true)
+    setIsResolvingRole(true)
     setAuthError('')
 
     const supabase = getSupabaseClient()
@@ -81,15 +130,27 @@ function App() {
       password,
     })
 
-    setIsSubmitting(false)
-
     if (error) {
+      setIsSubmitting(false)
+      setIsResolvingRole(false)
       setAuthError(error.message)
       setIsAuthenticated(false)
+      setResolvedDashboardRole(null)
       return
     }
 
-    setIsAuthenticated(true)
+    const resolvedRole = await resolveAuthenticatedMembershipRole()
+    setIsSubmitting(false)
+    setIsResolvingRole(false)
+    setResolvedDashboardRole(resolvedRole)
+
+    if (resolvedRole === 'parent' || resolvedRole === 'child') {
+      setIsAuthenticated(true)
+      return
+    }
+
+    setAuthError('המשתמש עדיין לא משויך למשפחה')
+    setIsAuthenticated(false)
   }
 
   const handleLogout = async () => {
@@ -102,73 +163,176 @@ function App() {
     }
 
     setIsAuthenticated(false)
+    setIsResolvingRole(false)
+    setResolvedDashboardRole(null)
     setAuthError('')
+    setAuthView('landing')
+    setPassword('')
   }
 
-  if (isCheckingSession || !authReady) {
+  const shouldShowRoleLoading = isCheckingSession || !authReady || isResolvingRole || (isAuthenticated && resolvedDashboardRole === null && !authError)
+
+  if (shouldShowRoleLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-700">
-        <div className="rounded-2xl bg-white px-6 py-5 text-sm font-medium shadow-sm ring-1 ring-slate-200">
+      <div className="app-shell flex min-h-screen items-center justify-center px-4 py-10 text-slate-700">
+        <div className="panel-card px-6 py-5 text-sm font-medium">
           Loading session...
         </div>
       </div>
     )
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || resolvedDashboardRole === null) {
+    if (isAuthenticated && resolvedDashboardRole === null && !isResolvingRole) {
+      return (
+        <div dir="rtl" className="auth-shell min-h-screen px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-lg">
+            <div className="auth-card auth-card--parent">
+              <div className="auth-card__brand">
+                <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+                <p className="brand-label">Family Tasks</p>
+              </div>
+
+              <div className="auth-card__header">
+                <h2>המשתמש עדיין לא משויך למשפחה</h2>
+              </div>
+
+              <div className="auth-alert auth-alert--warning">
+                {authError || 'המשתמש עדיין לא משויך למשפחה'}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="auth-submit auth-submit--parent"
+              >
+                התנתקות
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (authView === 'landing') {
+      return (
+        <div dir="rtl" className="auth-shell min-h-screen px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-6xl">
+            <div className="landing-panel card-surface">
+              <div className="landing-panel__top">
+                <div className="landing-logo-wrap">
+                  <img src={familyTasksLogo} alt="Family Tasks logo" className="landing-logo" />
+                </div>
+                <div className="landing-copy">
+                  <p className="landing-kicker">Family Tasks</p>
+                  <h1 className="landing-title">{appName}</h1>
+                </div>
+              </div>
+
+              <div className="landing-hero-grid">
+                <div className="landing-message">
+                  <p className="eyebrow">משימות קטנות. הישגים גדולים.</p>
+                  <p className="supporting-copy">{appTagline}</p>
+                </div>
+
+                <div className="landing-metrics" aria-label="Family activity summary">
+                  <div className="mini-stat mini-stat--gold">
+                    <span className="mini-stat__kicker">XP</span>
+                    <strong>+120</strong>
+                  </div>
+                  <div className="mini-stat mini-stat--violet">
+                    <span className="mini-stat__kicker">פרסים</span>
+                    <strong>5</strong>
+                  </div>
+                  <div className="mini-stat mini-stat--sky">
+                    <span className="mini-stat__kicker">משימות</span>
+                    <strong>18</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="auth-choice-grid">
+                <button type="button" onClick={() => setAuthView('login')} className="auth-choice auth-choice--parent">
+                  <span className="auth-choice__icon">🔐</span>
+                  <div>
+                    <span className="auth-choice__label">התחברות</span>
+                    <span className="auth-choice__meta">כניסה לחשבון</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
-      <div dir="rtl" className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10 text-slate-800">
-        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <p className="text-sm font-medium text-indigo-600">Family Tasks</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-900">{appName}</h1>
-          <p className="mt-2 text-sm text-slate-600">{appTagline}</p>
+      <div dir="rtl" className="auth-shell min-h-screen px-4 py-8 sm:px-6">
+        <div className="mx-auto max-w-lg">
+          <button
+            type="button"
+            onClick={() => setAuthView('landing')}
+            className="back-link"
+          >
+            ← חזרה
+          </button>
 
-          <form className="mt-6 space-y-4" onSubmit={handleLogin}>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">אימייל</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none ring-0 transition focus:border-indigo-400 focus:bg-white"
-                placeholder="name@example.com"
-              />
+          <div className="auth-card auth-card--parent">
+            <div className="auth-card__brand">
+              <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+              <p className="brand-label">Family Tasks</p>
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">סיסמה</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none ring-0 transition focus:border-indigo-400 focus:bg-white"
-                placeholder="Enter password"
-              />
+            <div className="auth-card__header">
+              <h2>ברוכים הבאים 👋</h2>
+              <p>התחברו כדי להיכנס לחשבון המשפחה</p>
             </div>
 
-            {!supabaseConfig.isConfigured && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                Missing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the frontend environment.
+            <form className="auth-form" onSubmit={handleLogin}>
+              <div className="field-group">
+                <label htmlFor="auth-email">אימייל</label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@example.com"
+                  className="auth-input"
+                />
               </div>
-            )}
 
-            {authError && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {authError}
+              <div className="field-group">
+                <label htmlFor="auth-password">סיסמה</label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter password"
+                  className="auth-input"
+                />
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={isSubmitting || !supabaseConfig.isConfigured}
-              className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {isSubmitting ? 'Logging in...' : 'Log in'}
-            </button>
-          </form>
+              {!supabaseConfig.isConfigured && (
+                <div className="auth-alert auth-alert--warning">
+                  Missing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the frontend environment.
+                </div>
+              )}
 
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Use one of the existing Supabase test accounts from your local .env file, or enter the matching email/password for your project.
+              {authError && <div className="auth-alert auth-alert--error">{authError}</div>}
+
+              <button
+                type="submit"
+                disabled={isSubmitting || !supabaseConfig.isConfigured}
+                className="auth-submit auth-submit--parent"
+              >
+                {isSubmitting ? 'מתחבר...' : 'התחברות'}
+              </button>
+            </form>
+
+            <div className="auth-footnote">
+              Use one of the existing Supabase test accounts from your local .env file, or enter the matching email/password for your project.
+            </div>
           </div>
         </div>
       </div>
@@ -176,22 +340,22 @@ function App() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-100 text-slate-800">
+    <div dir="rtl" className="app-shell min-h-screen text-slate-800">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-col gap-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:flex-row sm:items-center sm:justify-between">
+        <header className="mb-6 flex flex-col gap-4 rounded-[1.75rem] border border-white/70 bg-white/80 p-4 shadow-[0_18px_38px_rgba(15,23,42,0.08)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-indigo-600">Family Tasks</p>
+            <p className="text-sm font-semibold tracking-[0.08em] text-indigo-600">Family Tasks</p>
             <h1 className="mt-1 text-3xl font-black text-slate-900">{appName}</h1>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+            <div className="rounded-full bg-gradient-to-r from-indigo-50 to-amber-50 px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-indigo-100">
               {appTagline} · {familyName}
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="secondary-button px-3 py-1.5 text-sm"
             >
               Log out
             </button>
@@ -207,6 +371,7 @@ function App() {
           {isParentDashboard ? (
             <ParentDashboard
               familyName={familyName}
+              currentUserName={currentUserName}
               stats={stats}
               members={members}
               tasks={tasks}
@@ -222,6 +387,7 @@ function App() {
           ) : (
             <ChildDashboard
               child={child}
+              currentUserName={currentUserName}
               tasks={tasks.filter((task) => task.memberId === child.id)}
               onSubmitTaskCompletion={submitTaskCompletion}
               rewards={rewards}

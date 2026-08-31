@@ -53,15 +53,13 @@ export function NotificationCenter({ notifications, onMarkRead, onMarkAllRead }:
   }
 
   return (
-    <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+    <section className="panel-card p-4 sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-black text-slate-900">התראות</h2>
             {unreadCount > 0 && (
-              <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700">
-                {unreadCount}
-              </span>
+              <span className="metric-pill bg-indigo-100 text-indigo-700">{unreadCount}</span>
             )}
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -73,7 +71,7 @@ export function NotificationCenter({ notifications, onMarkRead, onMarkAllRead }:
           type="button"
           onClick={handleMarkAllRead}
           disabled={unreadCount === 0}
-          className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          className="secondary-button w-full px-4 py-2 text-sm sm:w-auto"
         >
           סמן הכל כנקרא
         </button>

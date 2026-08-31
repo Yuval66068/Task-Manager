@@ -644,6 +644,7 @@ export function useFamilyTasks() {
   const [rewardRedemptions, setRewardRedemptions] = useState<RewardRedemptionRecord[]>([])
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [familyName, setFamilyName] = useState('')
+  const [currentUserName, setCurrentUserName] = useState('')
   const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<'parent' | 'child' | null>(null)
   const [authReady, setAuthReady] = useState(false)
@@ -686,32 +687,40 @@ export function useFamilyTasks() {
         return
       }
 
-      const { data: profileRow, error: profileError } = await supabase
+      const { data: currentProfile, error: currentProfileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('full_name')
         .eq('id', session.user.id)
         .maybeSingle()
 
-      const nextRole = profileError || !profileRow ? null : profileRow.role === 'parent' ? 'parent' : 'child'
+      if (isMounted) {
+        setCurrentUserName(currentProfileError || !currentProfile ? '' : (currentProfile.full_name ?? '').trim())
+      }
+
+      const { data: memberships, error: membershipsError } = await supabase
+        .from('family_members')
+        .select('family_id, role')
+        .eq('user_id', session.user.id)
+        .order('joined_at', { ascending: true })
+
+      const membershipRole = memberships?.[0]?.role
+      const nextRole = membershipRole === 'parent' ? 'parent' : membershipRole === 'child' ? 'child' : null
 
       if (isMounted) {
         setCurrentUserRole(nextRole)
       }
 
-      const { data: memberships, error: membershipsError } = await supabase
-        .from('family_members')
-        .select('family_id')
-        .eq('user_id', session.user.id)
-
       if (membershipsError || !memberships || memberships.length === 0) {
         if (isMounted) {
           setAuthReady(true)
-          setMembers(initialMembers)
-          setTasks(initialTasks)
-          setRewards(initialRewards)
-          setRewardRedemptions(initialRewardRedemptions)
-          setNotifications(initialNotifications)
-          setFamilyName('משפחת כהן')
+          setCurrentUserRole(null)
+          setMembers([])
+          setTasks([])
+          setRewards([])
+          setRewardRedemptions([])
+          setNotifications([])
+          setFamilyName('')
+          setActiveFamilyId(null)
         }
         return
       }
@@ -731,12 +740,13 @@ export function useFamilyTasks() {
           setRewardRedemptions(resolved.rewardRedemptions)
           setNotifications(resolved.notifications)
         } else {
-          setMembers(initialMembers)
-          setTasks(initialTasks)
-          setRewards(initialRewards)
-          setRewardRedemptions(initialRewardRedemptions)
-          setNotifications(initialNotifications)
-          setFamilyName('משפחת כהן')
+          setMembers([])
+          setTasks([])
+          setRewards([])
+          setRewardRedemptions([])
+          setNotifications([])
+          setFamilyName('')
+          setActiveFamilyId(null)
         }
       }
     }
@@ -1770,6 +1780,7 @@ export function useFamilyTasks() {
   return {
     ...dashboard,
     currentUserRole,
+    currentUserName,
     authReady,
     addTask,
     editTask,

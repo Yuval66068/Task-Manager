@@ -3,6 +3,7 @@ import type { AchievementProgress, FamilyMember, RewardItem, RewardRedemptionRec
 
 type ChildDashboardProps = {
   child: FamilyMember
+  currentUserName: string
   tasks: TaskItem[]
   onSubmitTaskCompletion: (taskId: string, proofFile?: File) => void | Promise<void>
   rewards: RewardItem[]
@@ -34,6 +35,7 @@ const formatAchievementProgress = (achievement: AchievementProgress) => {
 
 export function ChildDashboard({
   child,
+  currentUserName,
   tasks,
   onSubmitTaskCompletion,
   rewards,
@@ -222,7 +224,7 @@ export function ChildDashboard({
   }
 
   return (
-    <section className="space-y-6">
+    <section className="dashboard-stack family-dashboard child-dashboard">
       {burst && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
           <div className="relative w-full max-w-md overflow-hidden rounded-[2rem] bg-white p-6 text-center shadow-2xl ring-1 ring-slate-200">
@@ -271,31 +273,39 @@ export function ChildDashboard({
         </div>
       )}
 
-      <div className="rounded-3xl bg-gradient-to-br from-yellow-200 via-orange-100 to-pink-100 p-5 shadow-sm">
-        <p className="text-sm font-medium text-orange-700">שלום {child.name}! 👋</p>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-3xl font-black text-slate-900">⭐ Level {child.level}</p>
-            <p className="mt-1 text-sm text-slate-600">
-              {child.xp} XP · {child.xpToNextLevel} XP עד הרמה הבאה
-            </p>
-          </div>
-          <div className="rounded-full bg-white/80 px-3 py-1 text-sm font-bold text-orange-700">
-            🔥 {child.streak} ימים
-          </div>
+      <div className="child-hero-card">
+        <div className="child-hero-card__visual" aria-hidden="true">
+          <span>🏆</span>
         </div>
 
-        <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/80">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-700 ease-out"
-            style={{ width: progressWidth }}
-          />
-        </div>
+        <div className="child-hero-card__content">
+          <div className="child-hero-card__header-row">
+            <p>שלום, {currentUserName || child.name}! 👋</p>
+            <div className="child-hero-card__badge">🔥 {child.streak} ימים</div>
+          </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-700">
-          <span className="rounded-full bg-white/80 px-3 py-1">Base {child.baseXp} XP</span>
-          {child.dailyBonusXp > 0 && <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Daily +{child.dailyBonusXp} XP</span>}
-          {child.achievementXp > 0 && <span className="rounded-full bg-violet-100 px-3 py-1 text-violet-700">Achievements +{child.achievementXp} XP</span>}
+          <div className="child-hero-card__main-row">
+            <div>
+              <p className="child-hero-card__level">Level {child.level}</p>
+              <p className="child-hero-card__meta">
+                {child.xp} XP · {child.xpToNextLevel} XP עד הרמה הבאה
+              </p>
+            </div>
+            <div className="child-hero-card__xp-pill">⭐ {child.xp} XP</div>
+          </div>
+
+          <div className="child-hero-card__progress">
+            <div
+              className="child-hero-card__progress-bar"
+              style={{ width: progressWidth }}
+            />
+          </div>
+
+          <div className="child-hero-card__chips">
+            <span>Base {child.baseXp} XP</span>
+            {child.dailyBonusXp > 0 && <span className="success">Daily +{child.dailyBonusXp} XP</span>}
+            {child.achievementXp > 0 && <span className="purple">Achievements +{child.achievementXp} XP</span>}
+          </div>
         </div>
       </div>
 
@@ -318,10 +328,41 @@ export function ChildDashboard({
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      {rewards.filter((reward) => reward.isActive).length > 0 && (() => {
+        const nextReward = rewards.filter((reward) => reward.isActive)[0]
+        return (
+          <div className="treasure-card">
+            <div className="treasure-card__badge">🎁 ארון הפרסים</div>
+            <div className="treasure-card__body">
+              <div className="treasure-card__visual" aria-hidden="true">
+                <div className="treasure-chest">
+                  <div className="treasure-chest__spark treasure-chest__spark--one">✦</div>
+                  <div className="treasure-chest__spark treasure-chest__spark--two">✦</div>
+                  <div className="treasure-chest__spark treasure-chest__spark--three">✦</div>
+                  <div className="treasure-chest__lid" />
+                  <div className="treasure-chest__body">
+                    <div className="treasure-chest__stripe" />
+                    <div className="treasure-chest__buckle" />
+                  </div>
+                </div>
+              </div>
+              <div className="treasure-card__content">
+                <p className="treasure-card__label">המטרה הבאה</p>
+                <h3>{nextReward.title}</h3>
+                <div className="treasure-card__meta">
+                  <span>{nextReward.xpCost} XP</span>
+                  <span>{child.xp >= nextReward.xpCost ? 'זמין' : 'עוד קצת'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      <div className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">פרסים זמינים</h3>
-          <span className="text-xs font-semibold text-slate-500">{rewards.filter((reward) => reward.isActive).length} פעילים</span>
+          <span className="metric-pill bg-violet-100 text-violet-700">{rewards.filter((reward) => reward.isActive).length} פעילים</span>
         </div>
 
         {rewardError && (
@@ -343,13 +384,13 @@ export function ChildDashboard({
                 const canRequest = child.xp >= reward.xpCost && !hasPendingRequest
 
                 return (
-                  <div key={reward.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                  <div key={reward.id} className="rounded-[1.5rem] border border-violet-100 bg-gradient-to-r from-violet-50 via-white to-pink-50 p-3 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-bold text-slate-800">{reward.title}</p>
                         {reward.description && <p className="mt-1 text-xs text-slate-500">{reward.description}</p>}
                       </div>
-                      <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                      <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200">
                         {reward.xpCost} XP
                       </span>
                     </div>
@@ -364,7 +405,7 @@ export function ChildDashboard({
                           void handleRewardRequest(reward.id)
                         }}
                         disabled={!canRequest}
-                        className="rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        className="primary-button px-3 py-1.5 text-xs"
                       >
                         {hasPendingRequest ? 'ממתין' : 'ממש פרס'}
                       </button>
@@ -376,10 +417,10 @@ export function ChildDashboard({
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">היסטוריית פרסים שלי</h3>
-          <span className="text-xs font-semibold text-slate-500">{childRewardHistory.length} בקשות</span>
+          <span className="metric-pill bg-emerald-100 text-emerald-700">{childRewardHistory.length} בקשות</span>
         </div>
 
         <div className="mt-4 space-y-3">
@@ -415,10 +456,10 @@ export function ChildDashboard({
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submissionError}</div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">הישגים</h3>
-          <span className="text-xs font-semibold text-slate-500">{child.achievementCount} הושגו</span>
+          <span className="metric-pill bg-amber-100 text-amber-700">{child.achievementCount} הושגו</span>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -465,7 +506,7 @@ export function ChildDashboard({
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="panel-card p-5">
         <h3 className="text-lg font-bold text-slate-900">המשימות שלך היום</h3>
         <ul className="mt-4 space-y-3">
           {tasks.map((task) => {
@@ -475,7 +516,7 @@ export function ChildDashboard({
             const proof = selectedProofs[task.id]
 
             return (
-              <li key={task.id} className="rounded-2xl bg-slate-50 p-3 text-right text-slate-700 ring-1 ring-slate-200">
+              <li key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3 text-right text-slate-700 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span>
                     {task.emoji} {task.title}

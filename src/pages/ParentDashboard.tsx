@@ -14,6 +14,7 @@ import type {
 
 type ParentDashboardProps = {
   familyName: string
+  currentUserName: string
   stats: {
     pendingApproval: number
     completedToday: number
@@ -42,6 +43,7 @@ const statusLabels: Record<TaskItem['status'], string> = {
 
 export function ParentDashboard({
   familyName,
+  currentUserName,
   stats,
   members,
   tasks,
@@ -292,16 +294,31 @@ export function ParentDashboard({
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-indigo-600">לוח הורה</p>
-          <h2 className="mt-1 text-2xl font-bold text-slate-900">שלום 👋</h2>
-          <p className="mt-1 text-sm text-slate-500">{familyName}</p>
+    <section className="dashboard-stack family-dashboard parent-dashboard">
+      <div className="family-hero-card">
+        <div className="family-hero-card__glow" aria-hidden="true" />
+        <div className="family-hero-card__top">
+          <div>
+            <p className="family-hero-card__eyebrow">לוח הורה</p>
+            <h2 className="family-hero-card__title">שלום, {currentUserName || 'הורה'}! 👋</h2>
+            <p className="family-hero-card__subtitle">{familyName}</p>
+          </div>
+          <div className="family-hero-card__chip">Family Tasks</div>
+        </div>
+
+        <div className="family-hero-card__stats">
+          <div className="family-hero-card__metric family-hero-card__metric--primary">
+            <span>ממתינות לאישור</span>
+            <strong>{stats.pendingApproval}</strong>
+          </div>
+          <div className="family-hero-card__metric family-hero-card__metric--secondary">
+            <span>XP משפחתי</span>
+            <strong>{stats.totalXp.toLocaleString('he-IL')}</strong>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="summary-grid">
         <StatCard
           label="ממתינות לאישור"
           value={String(stats.pendingApproval)}
@@ -316,10 +333,10 @@ export function ParentDashboard({
         <StatCard label="XP" value={stats.totalXp.toLocaleString('he-IL')} accent="bg-violet-100 text-violet-700" />
       </div>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">פרסים</h3>
-          <span className="text-sm text-slate-500">{rewards.filter((reward) => reward.isActive).length} פעילים</span>
+          <span className="metric-pill bg-violet-100 text-violet-700">{rewards.filter((reward) => reward.isActive).length} פעילים</span>
         </div>
 
         {rewardActionError && (
@@ -391,10 +408,10 @@ export function ParentDashboard({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">בקשות מימוש פרסים</h3>
-          <span className="text-sm text-slate-500">{rewardRequests.length} ממתינות</span>
+          <span className="metric-pill bg-amber-100 text-amber-700">{rewardRequests.length} ממתינות</span>
         </div>
 
         <div className="mt-4 space-y-3">
@@ -444,10 +461,10 @@ export function ParentDashboard({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">היסטוריית מימוש</h3>
-          <span className="text-sm text-slate-500">{rewardHistory.length} רשומות</span>
+          <span className="metric-pill bg-emerald-100 text-emerald-700">{rewardHistory.length} רשומות</span>
         </div>
 
         <div className="mt-4 space-y-3">
@@ -482,10 +499,10 @@ export function ParentDashboard({
         </div>
       </section>
 
-      <form onSubmit={handleSubmit} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <form onSubmit={handleSubmit} className="panel-card p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900">הוספת משימה</h3>
-          <span className="text-sm text-slate-500">לשבוע זה</span>
+          <span className="metric-pill bg-sky-100 text-sky-700">לשבוע זה</span>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -598,14 +615,14 @@ export function ParentDashboard({
 
         <button
           type="submit"
-          className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
+          className="primary-button mt-4 px-4 py-2 text-sm"
         >
           + הוסף משימה
         </button>
       </form>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">היום במשפחה</p>
+      <div className="panel-card p-5">
+        <p className="text-sm font-semibold tracking-[0.08em] text-slate-500">היום במשפחה</p>
         <div className="mt-5 space-y-4">
           {members
             .filter((member) => member.role === 'child')
@@ -630,7 +647,7 @@ export function ParentDashboard({
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="panel-card p-5">
         <h3 className="text-lg font-bold text-slate-900">ממתינות לאישור</h3>
         <div className="mt-4 space-y-3">
           {tasks.filter((task) => task.completionStatus === 'submitted').length === 0 ? (
@@ -642,7 +659,7 @@ export function ParentDashboard({
                 const assignee = members.find((member) => member.id === task.memberId)
                 const reviewNote = reviewNotes[task.id] ?? ''
                 return (
-                  <div key={task.id} className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                  <div key={task.id} className="rounded-[1.5rem] border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-orange-50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-base font-bold text-slate-800">
@@ -705,7 +722,7 @@ export function ParentDashboard({
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="panel-card p-5">
         <h3 className="text-lg font-bold text-slate-900">משימות משפחתיות</h3>
         <div className="mt-4 space-y-3">
           {tasks.map((task) => {
@@ -717,7 +734,7 @@ export function ParentDashboard({
             const completionLabel = formatCompletionStatus(task.completionStatus)
 
             return (
-              <div key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-base font-bold text-slate-800">
