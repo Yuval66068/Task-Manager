@@ -274,38 +274,38 @@ export function ChildDashboard({
       )}
 
       <div className="child-hero-card">
-        <div className="child-hero-card__visual" aria-hidden="true">
-          <span>🏆</span>
+        <div className="child-hero-card__header">
+          <span className="child-hero-card__eyebrow">משימות משפחתיות</span>
+          <div className="child-hero-card__badge">🔥 {child.streak} ימים</div>
         </div>
 
         <div className="child-hero-card__content">
-          <div className="child-hero-card__header-row">
-            <p>שלום, {currentUserName || child.name}! 👋</p>
-            <div className="child-hero-card__badge">🔥 {child.streak} ימים</div>
-          </div>
+          <h1 className="child-hero-card__title">איזה כיף שבאת, {currentUserName || child.name}! 🌟</h1>
+          <p className="child-hero-card__subtitle">בוא נראה מה מחכה לך היום</p>
+        </div>
 
-          <div className="child-hero-card__main-row">
-            <div>
-              <p className="child-hero-card__level">Level {child.level}</p>
-              <p className="child-hero-card__meta">
-                {child.xp} XP · {child.xpToNextLevel} XP עד הרמה הבאה
-              </p>
-            </div>
-            <div className="child-hero-card__xp-pill">⭐ {child.xp} XP</div>
+        <div className="child-hero-card__stats">
+          <div className="child-hero-card__metric">
+            <span>Level</span>
+            <strong>{child.level}</strong>
           </div>
+          <div className="child-hero-card__metric child-hero-card__metric--primary">
+            <span>XP</span>
+            <strong>{child.xp}</strong>
+          </div>
+        </div>
 
-          <div className="child-hero-card__progress">
-            <div
-              className="child-hero-card__progress-bar"
-              style={{ width: progressWidth }}
-            />
-          </div>
+        <div className="child-hero-card__progress" aria-label="התקדמות XP">
+          <div
+            className="child-hero-card__progress-bar"
+            style={{ width: progressWidth }}
+          />
+        </div>
 
-          <div className="child-hero-card__chips">
-            <span>Base {child.baseXp} XP</span>
-            {child.dailyBonusXp > 0 && <span className="success">Daily +{child.dailyBonusXp} XP</span>}
-            {child.achievementXp > 0 && <span className="purple">Achievements +{child.achievementXp} XP</span>}
-          </div>
+        <div className="child-hero-card__chips">
+          <span>Base {child.baseXp} XP</span>
+          {child.dailyBonusXp > 0 && <span className="success">Daily +{child.dailyBonusXp} XP</span>}
+          {child.achievementXp > 0 && <span className="purple">Achievements +{child.achievementXp} XP</span>}
         </div>
       </div>
 
