@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import familyTasksLogo from './images/1.jpeg'
 import { ParentDashboard } from './pages/ParentDashboard'
 import { ChildDashboard } from './pages/ChildDashboard'
@@ -10,13 +10,20 @@ import { appName, appTagline } from './utils/constants'
 function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [authView, setAuthView] = useState<'landing' | 'login'>('landing')
+  const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation'>('landing')
   const [authError, setAuthError] = useState('')
   const [email, setEmail] = useState(import.meta.env.VITE_TEST_PARENT_A_EMAIL ?? '')
   const [password, setPassword] = useState('')
+  const [signupFullName, setSignupFullName] = useState('')
+  const [signupFamilyName, setSignupFamilyName] = useState('')
+  const [signupEmail, setSignupEmail] = useState('')
+  const [signupPassword, setSignupPassword] = useState('')
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isResolvingRole, setIsResolvingRole] = useState(false)
   const [resolvedDashboardRole, setResolvedDashboardRole] = useState<'parent' | 'child' | null>(null)
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('')
+  const onboardingInFlightRef = useRef(false)
 
   const {
     familyName,
@@ -30,6 +37,7 @@ function App() {
     editTask,
     deleteTask,
     addReward,
+    archiveReward,
     requestReward,
     submitTaskCompletion,
     reviewTaskCompletion,
@@ -68,6 +76,57 @@ function App() {
     return firstMembershipRole === 'parent' ? 'parent' : 'child'
   }
 
+  async function completeParentOnboardingIfNeeded() {
+    if (onboardingInFlightRef.current) {
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      return
+    }
+
+    const { data: memberships, error: membershipsError } = await supabase
+      .from('family_members')
+      .select('id')
+      .eq('user_id', user.id)
+
+    if (membershipsError) {
+      return
+    }
+
+    if (memberships && memberships.length > 0) {
+      return
+    }
+
+    const fullName = user.user_metadata?.onboarding_full_name?.toString().trim()
+    const familyNameValue = user.user_metadata?.onboarding_family_name?.toString().trim()
+
+    if (!fullName || !familyNameValue) {
+      return
+    }
+
+    onboardingInFlightRef.current = true
+
+    try {
+      const { error } = await supabase.rpc('onboard_parent_family', {
+        p_full_name: fullName,
+        p_family_name: familyNameValue,
+      })
+
+      if (error && !String(error.message).toLowerCase().includes('already belongs to a family')) {
+        setAuthError(error.message)
+      }
+    } finally {
+      onboardingInFlightRef.current = false
+    }
+  }
+
   useEffect(() => {
     const supabase = getSupabaseClient()
 
@@ -85,6 +144,7 @@ function App() {
 
       const nextRole = await resolveAuthenticatedMembershipRole()
       setResolvedDashboardRole(nextRole)
+      await completeParentOnboardingIfNeeded()
       setIsCheckingSession(false)
     }
 
@@ -97,12 +157,14 @@ function App() {
       if (!session) {
         setResolvedDashboardRole(null)
         setIsCheckingSession(false)
+        onboardingInFlightRef.current = false
         return
       }
 
       void (async () => {
         const nextRole = await resolveAuthenticatedMembershipRole()
         setResolvedDashboardRole(nextRole)
+        await completeParentOnboardingIfNeeded()
         setIsCheckingSession(false)
       })()
     })
@@ -153,6 +215,82 @@ function App() {
     setIsAuthenticated(false)
   }
 
+  const handleSignup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const fullName = signupFullName.trim()
+    const familyNameValue = signupFamilyName.trim()
+    const normalizedEmail = signupEmail.trim()
+
+    if (!fullName || !familyNameValue || !normalizedEmail || !signupPassword.trim()) {
+      setAuthError('יש למלא את כל השדות')
+      return
+    }
+
+    if (signupPassword.length < 8) {
+      setAuthError('הסיסמה חייבת להכיל לפחות 8 תווים')
+      return
+    }
+
+    if (signupPassword !== signupConfirmPassword) {
+      setAuthError('הסיסמאות אינן תואמות')
+      return
+    }
+
+    setIsSubmitting(true)
+    setAuthError('')
+
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password: signupPassword,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`,
+        data: {
+          onboarding_full_name: fullName,
+          onboarding_family_name: familyNameValue,
+        },
+      },
+    })
+
+    if (error) {
+      setAuthError(error.message)
+      setIsSubmitting(false)
+      return
+    }
+
+    if (data.session) {
+      await completeParentOnboardingIfNeeded()
+      setIsAuthenticated(true)
+      setIsSubmitting(false)
+      setAuthView('landing')
+      return
+    }
+
+    setPendingConfirmationEmail(normalizedEmail)
+    setAuthView('pending-confirmation')
+    setIsSubmitting(false)
+  }
+
+  const handleResendVerification = async () => {
+    if (!pendingConfirmationEmail) {
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: pendingConfirmationEmail,
+    })
+
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+
+    setAuthError('הודעת האימות נשלחה שוב. בדקו את תיבת הדואר הנכנס.')
+  }
+
   const handleLogout = async () => {
     const supabase = getSupabaseClient()
     const { error } = await supabase.auth.signOut()
@@ -166,8 +304,14 @@ function App() {
     setIsResolvingRole(false)
     setResolvedDashboardRole(null)
     setAuthError('')
+    setPendingConfirmationEmail('')
     setAuthView('landing')
     setPassword('')
+    setSignupFullName('')
+    setSignupFamilyName('')
+    setSignupEmail('')
+    setSignupPassword('')
+    setSignupConfirmPassword('')
   }
 
   const isAwaitingRealFamilyData =
@@ -262,7 +406,144 @@ function App() {
                     <span className="auth-choice__meta">כניסה לחשבון</span>
                   </div>
                 </button>
+                <button type="button" onClick={() => setAuthView('signup')} className="auth-choice auth-choice--gold">
+                  <span className="auth-choice__icon">✨</span>
+                  <div>
+                    <span className="auth-choice__label">יצירת משפחה</span>
+                    <span className="auth-choice__meta">פתיחת חשבון חדש</span>
+                  </div>
+                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (authView === 'signup') {
+      return (
+        <div dir="rtl" className="auth-shell min-h-screen px-4 py-8 sm:px-6">
+          <div className="mx-auto max-w-lg">
+            <button type="button" onClick={() => setAuthView('landing')} className="back-link">
+              ← חזרה
+            </button>
+
+            <div className="auth-card auth-card--parent">
+              <div className="auth-card__brand">
+                <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+                <p className="brand-label">Family Tasks</p>
+              </div>
+
+              <div className="auth-card__header">
+                <h2>יצירת משפחה חדשה</h2>
+                <p>צרו את המשפחה שלכם וצרו חשבון הורה</p>
+              </div>
+
+              <form className="auth-form" onSubmit={handleSignup}>
+                <div className="field-group">
+                  <label htmlFor="signup-full-name">שם פרטי</label>
+                  <input
+                    id="signup-full-name"
+                    type="text"
+                    value={signupFullName}
+                    onChange={(event) => setSignupFullName(event.target.value)}
+                    className="auth-input"
+                    placeholder="שם ההורה"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="signup-family-name">שם המשפחה</label>
+                  <input
+                    id="signup-family-name"
+                    type="text"
+                    value={signupFamilyName}
+                    onChange={(event) => setSignupFamilyName(event.target.value)}
+                    className="auth-input"
+                    placeholder="שם המשפחה החדשה"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="signup-email">אימייל</label>
+                  <input
+                    id="signup-email"
+                    type="email"
+                    value={signupEmail}
+                    onChange={(event) => setSignupEmail(event.target.value)}
+                    className="auth-input"
+                    placeholder="name@example.com"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="signup-password">סיסמה</label>
+                  <input
+                    id="signup-password"
+                    type="password"
+                    value={signupPassword}
+                    onChange={(event) => setSignupPassword(event.target.value)}
+                    className="auth-input"
+                    placeholder="לפחות 8 תווים"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="signup-confirm-password">אישור סיסמה</label>
+                  <input
+                    id="signup-confirm-password"
+                    type="password"
+                    value={signupConfirmPassword}
+                    onChange={(event) => setSignupConfirmPassword(event.target.value)}
+                    className="auth-input"
+                    placeholder="הקלידו שוב את הסיסמה"
+                  />
+                </div>
+
+                {authError && <div className="auth-alert auth-alert--error">{authError}</div>}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !supabaseConfig.isConfigured}
+                  className="auth-submit auth-submit--parent"
+                >
+                  {isSubmitting ? 'יוצר משפחה...' : 'צור משפחה'}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (authView === 'pending-confirmation') {
+      return (
+        <div dir="rtl" className="auth-shell min-h-screen px-4 py-8 sm:px-6">
+          <div className="mx-auto max-w-lg">
+            <button type="button" onClick={() => setAuthView('landing')} className="back-link">
+              ← חזרה
+            </button>
+
+            <div className="auth-card auth-card--parent">
+              <div className="auth-card__brand">
+                <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+                <p className="brand-label">Family Tasks</p>
+              </div>
+
+              <div className="auth-card__header">
+                <h2>כמעט סיימנו</h2>
+                <p>שלחנו קישור אישור לכתובת: {pendingConfirmationEmail}</p>
+              </div>
+
+              <div className="auth-alert auth-alert--warning">
+                כדי להשלים את יצירת המשפחה, יש לאשר את כתובת האימייל שלכם.
+              </div>
+
+              {authError && <div className="auth-alert auth-alert--error">{authError}</div>}
+
+              <button type="button" onClick={handleResendVerification} className="auth-submit auth-submit--parent">
+                שלח קישור שוב
+              </button>
             </div>
           </div>
         </div>
@@ -385,6 +666,7 @@ function App() {
               onDeleteTask={deleteTask}
               onReviewTaskCompletion={reviewTaskCompletion}
               onAddReward={addReward}
+              onArchiveReward={archiveReward}
               onReviewRewardRedemption={reviewRewardRedemption}
             />
           ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabaseClient, supabaseConfig } from '../services/supabase'
 import { createTaskProofSignedUrl, deleteTaskProof, uploadTaskProof } from '../services/taskProofs'
 import { calculateLevel, deriveFamilyGamification, type FamilyMemberSeed } from '../utils/gamification'
@@ -596,6 +596,99 @@ export function useFamilyTasks() {
     })
   }, [tasks, rewardRedemptions, activeFamilyId])
 
+  const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!supabaseConfig.isConfigured || !activeFamilyId) {
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    let isEffectActive = true
+
+    const refetchFamilyData = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session || !isEffectActive) {
+        return
+      }
+
+      const resolved = await mapSupabaseFamily(activeFamilyId, session.user.id)
+
+      if (!resolved || !isEffectActive) {
+        return
+      }
+
+      setFamilyName(resolved.familyName)
+      setMembers(resolved.members)
+      setTasks(resolved.tasks)
+      setRewards(resolved.rewards)
+      setRewardRedemptions(resolved.rewardRedemptions)
+      setNotifications(resolved.notifications)
+    }
+
+    const scheduleRefetch = () => {
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current)
+      }
+
+      realtimeDebounceRef.current = setTimeout(() => {
+        realtimeDebounceRef.current = null
+        void refetchFamilyData()
+      }, 400)
+    }
+
+    const channel = supabase
+      .channel(`family-realtime-${activeFamilyId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks', filter: `family_id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        // task_completions has no family_id column; rely on an authoritative refetch
+        // (guarded by RLS) rather than a client-side filter here.
+        { event: '*', schema: 'public', table: 'task_completions' },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `family_id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rewards', filter: `family_id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        // user_rewards has no family_id column; rely on an authoritative refetch
+        // (guarded by RLS) rather than a client-side filter here.
+        { event: '*', schema: 'public', table: 'user_rewards' },
+        scheduleRefetch,
+      )
+      .subscribe((status, error) => {
+        if (error) {
+          console.error('Supabase Realtime subscription error:', error)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('Supabase Realtime channel status:', status)
+        }
+      })
+
+    return () => {
+      isEffectActive = false
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current)
+        realtimeDebounceRef.current = null
+      }
+      void supabase.removeChannel(channel)
+    }
+  }, [activeFamilyId])
+
   const totalXp = useMemo(() => members.reduce((sum, member) => sum + member.xp, 0), [members])
   const completionRate = useMemo(() => {
     const totalCompleted = members.reduce((sum, member) => sum + member.completedTasks, 0)
@@ -953,12 +1046,13 @@ export function useFamilyTasks() {
     const task = tasks.find((item) => item.id === taskId)
 
     if (!task) {
-      return
+      console.error('Task not found while submitting completion.', { taskId })
+      throw new Error('Task not found while submitting completion.')
     }
 
     if (task.requiresPhoto && !proofFile) {
       console.error('Task requires a photo proof before completion can be submitted.')
-      return
+      throw new Error('Task requires a photo proof before completion can be submitted.')
     }
 
     const nextSubmittedAt = new Date().toISOString()
@@ -1036,7 +1130,7 @@ export function useFamilyTasks() {
           }
         }
         console.error('Failed to upload proof image:', error)
-        return
+        throw error instanceof Error ? error : new Error('Failed to upload proof image.')
       }
     }
 
@@ -1070,7 +1164,7 @@ export function useFamilyTasks() {
         taskId,
         childId: session.user.id,
       })
-      return
+      throw new Error('Failed to submit task completion.')
     }
 
     const completion = result.data
@@ -1286,6 +1380,42 @@ export function useFamilyTasks() {
       ...current,
     ])
     await refreshNotifications()
+  }
+
+  const archiveReward = async (rewardId: string) => {
+    if (!supabaseConfig.isConfigured || !activeFamilyId) {
+      setRewards((current) =>
+        current.map((reward) =>
+          reward.id === rewardId ? { ...reward, isActive: false, updatedAt: new Date().toISOString() } : reward,
+        ),
+      )
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+      .from('rewards')
+      .update({ is_active: false })
+      .eq('id', rewardId)
+      .select('id, family_id, title, description, xp_cost, is_active, created_by, created_at, updated_at')
+      .single()
+
+    if (error || !data) {
+      console.error('Failed to archive reward:', { error, rewardId, familyId: activeFamilyId })
+      throw new Error('Failed to archive reward.')
+    }
+
+    setRewards((current) =>
+      current.map((reward) =>
+        reward.id === rewardId
+          ? {
+              ...reward,
+              isActive: Boolean(data.is_active),
+              updatedAt: data.updated_at,
+            }
+          : reward,
+      ),
+    )
   }
 
   const requestReward = async (rewardId: string) => {
@@ -1581,6 +1711,7 @@ export function useFamilyTasks() {
     submitTaskCompletion,
     reviewTaskCompletion,
     addReward,
+    archiveReward,
     requestReward,
     reviewRewardRedemption,
     notifications,

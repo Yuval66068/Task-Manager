@@ -67,6 +67,7 @@ export function ChildDashboard({
   const [selectedProofs, setSelectedProofs] = useState<Record<string, { file: File; previewUrl: string } | null>>({})
   const [submissionError, setSubmissionError] = useState('')
   const [submissionSuccess, setSubmissionSuccess] = useState('')
+  const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
   const [rewardError, setRewardError] = useState('')
   const [burst, setBurst] = useState<BurstState | null>(null)
 
@@ -226,13 +227,23 @@ export function ChildDashboard({
   }
 
   const handleSubmit = async (task: TaskItem) => {
+    setSubmissionError('')
+    setSubmissionSuccess('')
+    setSubmittingTaskId(task.id)
+
     try {
-      setSubmissionError('')
       await onSubmitTaskCompletion(task.id, selectedProofs[task.id]?.file)
       setSubmissionSuccess('המשימה נשלחה לאישור בהצלחה!')
       clearProof(task.id)
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : 'Could not submit the task.')
+      console.error('Failed to submit task completion:', error)
+      setSubmissionError(
+        task.requiresPhoto
+          ? 'לא הצלחנו לשלוח את המשימה עם התמונה. נסה שוב.'
+          : 'לא הצלחנו לשלוח את המשימה. נסה שוב.',
+      )
+    } finally {
+      setSubmittingTaskId(null)
     }
   }
 
@@ -614,10 +625,14 @@ export function ChildDashboard({
                     <button
                       type="button"
                       onClick={() => handleSubmit(task)}
-                      disabled={task.requiresPhoto && !proof}
+                      disabled={(task.requiresPhoto && !proof) || submittingTaskId === task.id}
                       className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
-                      {task.requiresPhoto ? 'שלח עם תמונה' : 'סמן הושלם'}
+                      {submittingTaskId === task.id
+                        ? 'שולח...'
+                        : task.requiresPhoto
+                          ? 'שלח עם תמונה'
+                          : 'סמן הושלם'}
                     </button>
                   )}
                   {!canSubmit && (

@@ -30,6 +30,7 @@ type ParentDashboardProps = {
   onDeleteTask: (taskId: string) => void
   onReviewTaskCompletion: (taskId: string, status: 'approved' | 'rejected', feedback?: string) => void
   onAddReward: (draft: RewardDraft) => void
+  onArchiveReward: (rewardId: string) => void | Promise<void>
   onReviewRewardRedemption: (redemptionId: string, status: 'approved' | 'rejected') => void
 }
 
@@ -54,6 +55,7 @@ export function ParentDashboard({
   onDeleteTask,
   onReviewTaskCompletion,
   onAddReward,
+  onArchiveReward,
   onReviewRewardRedemption,
 }: ParentDashboardProps) {
   const [title, setTitle] = useState('')
@@ -80,6 +82,7 @@ export function ParentDashboard({
   const [rewardDescription, setRewardDescription] = useState('')
   const [rewardXpCost, setRewardXpCost] = useState(20)
   const [rewardActionError, setRewardActionError] = useState('')
+  const [archivingRewardId, setArchivingRewardId] = useState<string | null>(null)
 
   const childMembers = members.filter((member) => member.role === 'child')
   const rewardRequests = useMemo(() => rewardRedemptions.filter((redemption) => redemption.status === 'pending'), [rewardRedemptions])
@@ -178,6 +181,24 @@ export function ParentDashboard({
     setRewardTitle('')
     setRewardDescription('')
     setRewardXpCost(20)
+  }
+
+  const handleArchiveReward = async (rewardId: string) => {
+    const confirmed = window.confirm('להסיר את הפרס? הוא לא יוצג יותר לילדים.')
+    if (!confirmed) {
+      return
+    }
+
+    setRewardActionError('')
+    setArchivingRewardId(rewardId)
+
+    try {
+      await onArchiveReward(rewardId)
+    } catch (error) {
+      setRewardActionError(error instanceof Error ? error.message : 'לא הצלחנו להסיר את הפרס. נסה שוב.')
+    } finally {
+      setArchivingRewardId(null)
+    }
   }
 
   const handleRewardDecision = async (redemptionId: string, decision: 'approved' | 'rejected') => {
@@ -388,22 +409,34 @@ export function ParentDashboard({
         </form>
 
         <div className="mt-4 space-y-3">
-          {rewards.length === 0 ? (
+          {rewards.filter((reward) => reward.isActive).length === 0 ? (
             <p className="text-sm text-slate-500">אין עדיין פרסים משפחתיים.</p>
           ) : (
-            rewards.map((reward) => (
-              <div key={reward.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-slate-900">{reward.title}</p>
-                    {reward.description && <p className="mt-1 text-xs text-slate-500">{reward.description}</p>}
+            rewards
+              .filter((reward) => reward.isActive)
+              .map((reward) => (
+                <div key={reward.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-slate-900">{reward.title}</p>
+                      {reward.description && <p className="mt-1 text-xs text-slate-500">{reward.description}</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                        {reward.xpCost} XP
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveReward(reward.id)}
+                        disabled={archivingRewardId === reward.id}
+                        className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {archivingRewardId === reward.id ? 'מסיר...' : 'הסר פרס'}
+                      </button>
+                    </div>
                   </div>
-                  <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
-                    {reward.xpCost} XP
-                  </span>
                 </div>
-              </div>
-            ))
+              ))
           )}
         </div>
       </section>
