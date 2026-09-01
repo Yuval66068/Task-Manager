@@ -1,0 +1,10 @@
+# Supabase local/project configuration.
+#
+# Only the settings needed for the send-push-notification Edge Function are
+# defined here. This does not disable JWT verification globally — it is
+# scoped to this one function, which uses @supabase/server's
+# withSupabase({ auth: 'secret' }) to require a valid Supabase secret API
+# key in the `apikey` header before any request is processed.
+
+[functions.send-push-notification]
+verify_jwt = false
