@@ -33,6 +33,28 @@ const formatAchievementProgress = (achievement: AchievementProgress) => {
   return `${current}/${achievement.threshold}`
 }
 
+const achievementTitleMap: Record<string, string> = {
+  'First Step': 'צעד ראשון',
+  'Task Runner': 'רץ המשימות',
+  'On a Roll': 'ברצף!',
+  'Consistency Star': 'כוכב ההתמדה',
+  'Daily Winner': 'אלוף היום',
+}
+
+const achievementDescriptionMap: Record<string, string> = {
+  'Complete your first task.': 'השלם את המשימה הראשונה שלך',
+  'Complete five tasks.': 'השלם 5 משימות',
+  'Keep a three-day streak.': 'שמור על רצף של 3 ימים',
+  'Keep a seven-day streak.': 'שמור על רצף של 7 ימים',
+  'Finish every required daily task on a day.': 'השלם את כל המשימות היומיות שלך ביום אחד',
+}
+
+const achievementMetricLabelMap: Record<string, string> = {
+  streak: 'רצף ימים',
+  dailyBonusDays: 'בונוס יומי',
+  approvedCount: 'משימות שהושלמו',
+}
+
 export function ChildDashboard({
   child,
   currentUserName,
@@ -476,21 +498,23 @@ export function ChildDashboard({
                 <div className="flex items-center gap-2">
                   <span className="text-xl">{achievement.icon}</span>
                   <div>
-                    <p className="font-bold text-slate-900">{achievement.title}</p>
-                    <p className="text-xs text-slate-500">{achievement.description}</p>
+                    <p className="font-bold text-slate-900">{achievementTitleMap[achievement.title] ?? achievement.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {achievementDescriptionMap[achievement.description] ?? achievement.description}
+                    </p>
                   </div>
                 </div>
                 <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                   achievement.unlocked ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
                 }`}>
-                  {achievement.unlocked ? `+${achievement.xpReward} XP` : 'Locked'}
+                  {achievement.unlocked ? `+${achievement.xpReward} XP` : 'נעול'}
                 </span>
               </div>
 
               <div className="mt-3">
                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                   <span>{formatAchievementProgress(achievement)}</span>
-                  <span>{achievement.metric === 'streak' ? 'streak' : achievement.metric === 'dailyBonusDays' ? 'daily bonus' : 'completions'}</span>
+                  <span>{achievementMetricLabelMap[achievement.metric] ?? achievement.metric}</span>
                 </div>
                 <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200">
                   <div
@@ -522,7 +546,7 @@ export function ChildDashboard({
                     {task.emoji} {task.title}
                   </span>
                   <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
-                    {task.status}
+                    {task.status === 'pending' ? 'ממתינה לאישור' : task.status}
                   </span>
                 </div>
 

@@ -308,7 +308,7 @@ export function ParentDashboard({
 
         <div className="family-hero-card__stats">
           <div className="family-hero-card__metric family-hero-card__metric--primary">
-            <span>ממתינות לאישור</span>
+            <span>משימות ממתינות לאישור</span>
             <strong>{stats.pendingApproval}</strong>
           </div>
           <div className="family-hero-card__metric family-hero-card__metric--secondary">
@@ -320,16 +320,16 @@ export function ParentDashboard({
 
       <div className="summary-grid">
         <StatCard
-          label="ממתינות לאישור"
+          label="משימות ממתינות לאישור"
           value={String(stats.pendingApproval)}
           accent="bg-amber-100 text-amber-700"
         />
         <StatCard
-          label="הושלמו"
+          label="משימות שהושלמו"
           value={String(stats.completedToday)}
           accent="bg-emerald-100 text-emerald-700"
         />
-        <StatCard label="באיחור" value={String(stats.overdue)} accent="bg-rose-100 text-rose-700" />
+        <StatCard label="משימות באיחור" value={String(stats.overdue)} accent="bg-rose-100 text-rose-700" />
         <StatCard label="XP" value={stats.totalXp.toLocaleString('he-IL')} accent="bg-violet-100 text-violet-700" />
       </div>
 
