@@ -170,13 +170,16 @@ function App() {
     setPassword('')
   }
 
-  const shouldShowRoleLoading = isCheckingSession || !authReady || isResolvingRole || (isAuthenticated && resolvedDashboardRole === null && !authError)
+  const isAwaitingRealFamilyData =
+    isAuthenticated && (!authReady || !resolvedDashboardRole || !familyName || !currentUserName)
+  const shouldShowRoleLoading =
+    isCheckingSession || !authReady || isResolvingRole || isAwaitingRealFamilyData || (isAuthenticated && resolvedDashboardRole === null && !authError)
 
   if (shouldShowRoleLoading) {
     return (
       <div className="app-shell flex min-h-screen items-center justify-center px-4 py-10 text-slate-700">
         <div className="panel-card px-6 py-5 text-sm font-medium">
-          Loading session...
+          טוען את המשפחה...
         </div>
       </div>
     )

@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getSupabaseClient, supabaseConfig } from '../services/supabase'
 import { createTaskProofSignedUrl, deleteTaskProof, uploadTaskProof } from '../services/taskProofs'
-import {
-  buildFallbackMember,
-  calculateLevel,
-  deriveFamilyGamification,
-  type FamilyMemberSeed,
-} from '../utils/gamification'
+import { calculateLevel, deriveFamilyGamification, type FamilyMemberSeed } from '../utils/gamification'
 import type {
   FamilyDashboardData,
   FamilyMember,
@@ -24,38 +19,6 @@ import type {
   TaskRecurrence,
   TaskStatus,
 } from '../types'
-
-const initialMemberSeeds = [
-  {
-    id: 'daniel',
-    name: 'דניאל',
-    role: 'child',
-    xp: 720,
-    streak: 5,
-    completedTasks: 4,
-    totalTasks: 5,
-  },
-  {
-    id: 'noa',
-    name: 'נועה',
-    role: 'child',
-    xp: 540,
-    streak: 3,
-    completedTasks: 3,
-    totalTasks: 4,
-  },
-  {
-    id: 'parent',
-    name: 'הורה',
-    role: 'parent',
-    xp: 1280,
-    streak: 7,
-    completedTasks: 9,
-    totalTasks: 10,
-  },
-] satisfies Array<Pick<FamilyMember, 'id' | 'name' | 'role' | 'xp' | 'streak' | 'completedTasks' | 'totalTasks'>>
-
-const initialMembers: FamilyMember[] = initialMemberSeeds.map(buildFallbackMember)
 
 type TaskRowRecord = {
   id: string
@@ -92,179 +55,6 @@ const updateFallbackMemberXp = (member: FamilyMember, xpDelta: number, completed
 }
 
 const createTempId = (prefix: string) => `${prefix}-${Date.now()}`
-
-const initialTasks: TaskItem[] = [
-  {
-    id: 'task-1',
-    title: 'סידור המיטה',
-    emoji: '🛏️',
-    xp: 10,
-    status: 'approved',
-    memberId: 'daniel',
-    dueAt: null,
-    priority: 'medium',
-    recurrence: 'none',
-    requiresPhoto: false,
-    completionId: null,
-    completionStatus: null,
-    completionNote: null,
-    proofPhotoPath: null,
-    proofPhotoUrl: null,
-    submittedAt: null,
-    reviewedBy: null,
-    reviewedAt: null,
-  },
-  {
-    id: 'task-2',
-    title: 'סידור החדר',
-    emoji: '🧹',
-    xp: 20,
-    status: 'approved',
-    memberId: 'daniel',
-    dueAt: null,
-    priority: 'medium',
-    recurrence: 'none',
-    requiresPhoto: false,
-    completionId: null,
-    completionStatus: null,
-    completionNote: null,
-    proofPhotoPath: null,
-    proofPhotoUrl: null,
-    submittedAt: null,
-    reviewedBy: null,
-    reviewedAt: null,
-  },
-  {
-    id: 'task-3',
-    title: 'הכנת ארוחת צהריים',
-    emoji: '🍽️',
-    xp: 25,
-    status: 'pending',
-    memberId: 'noa',
-    dueAt: null,
-    priority: 'medium',
-    recurrence: 'none',
-    requiresPhoto: false,
-    completionId: null,
-    completionStatus: null,
-    completionNote: null,
-    proofPhotoPath: null,
-    proofPhotoUrl: null,
-    submittedAt: null,
-    reviewedBy: null,
-    reviewedAt: null,
-  },
-  {
-    id: 'task-4',
-    title: 'סידור מגרש',
-    emoji: '⚽',
-    xp: 30,
-    status: 'overdue',
-    memberId: 'daniel',
-    dueAt: null,
-    priority: 'medium',
-    recurrence: 'none',
-    requiresPhoto: false,
-    completionId: null,
-    completionStatus: null,
-    completionNote: null,
-    proofPhotoPath: null,
-    proofPhotoUrl: null,
-    submittedAt: null,
-    reviewedBy: null,
-    reviewedAt: null,
-  },
-  {
-    id: 'task-5',
-    title: 'מיון כביסה',
-    emoji: '🧺',
-    xp: 15,
-    status: 'completed',
-    memberId: 'noa',
-    dueAt: null,
-    priority: 'medium',
-    recurrence: 'none',
-    requiresPhoto: false,
-    completionId: null,
-    completionStatus: null,
-    completionNote: null,
-    proofPhotoPath: null,
-    proofPhotoUrl: null,
-    submittedAt: null,
-    reviewedBy: null,
-    reviewedAt: null,
-  },
-]
-
-const initialRewards: RewardItem[] = [
-  {
-    id: 'reward-1',
-    familyId: 'demo-family',
-    title: 'Extra bedtime story',
-    description: 'Choose a longer bedtime story tonight.',
-    xpCost: 30,
-    isActive: true,
-    createdBy: 'parent',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'reward-2',
-    familyId: 'demo-family',
-    title: 'Movie night pick',
-    description: 'Pick the family movie for Friday night.',
-    xpCost: 50,
-    isActive: true,
-    createdBy: 'parent',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-]
-
-const initialRewardRedemptions: RewardRedemptionRecord[] = [
-  {
-    id: 'reward-request-1',
-    userId: 'daniel',
-    rewardId: 'reward-1',
-    status: 'approved',
-    requestedAt: new Date().toISOString(),
-    reviewedBy: 'parent',
-    reviewedAt: new Date().toISOString(),
-    xpCostSnapshot: 30,
-    rewardTitle: initialRewards[0].title,
-    rewardDescription: initialRewards[0].description,
-    rewardFamilyId: initialRewards[0].familyId,
-  },
-]
-
-const initialNotifications: NotificationItem[] = [
-  {
-    id: 'notification-1',
-    familyId: 'demo-family',
-    recipientId: 'daniel',
-    actorId: 'parent',
-    type: 'task_assigned',
-    message: 'משימה חדשה: סידור המיטה',
-    isRead: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    taskId: 'task-1',
-    rewardId: null,
-  },
-  {
-    id: 'notification-2',
-    familyId: 'demo-family',
-    recipientId: 'parent',
-    actorId: 'daniel',
-    type: 'task_completed',
-    message: 'דניאל שלח את "סידור החדר" לאישור',
-    isRead: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    taskId: 'task-2',
-    rewardId: null,
-  },
-]
 
 const toTaskStatus = (value: string | null | undefined): TaskStatus => {
   switch (value) {
@@ -652,18 +442,20 @@ export function useFamilyTasks() {
   useEffect(() => {
     let isMounted = true
 
-    const applyDemoFallback = () => {
+    const resetFamilyData = () => {
       if (!isMounted) {
         return
       }
 
       setCurrentUserRole(null)
-      setMembers(initialMembers)
-      setTasks(initialTasks)
-      setRewards(initialRewards)
-      setRewardRedemptions(initialRewardRedemptions)
-      setNotifications(initialNotifications)
-      setFamilyName('משפחת כהן')
+      setCurrentUserName('')
+      setMembers([])
+      setTasks([])
+      setRewards([])
+      setRewardRedemptions([])
+      setNotifications([])
+      setFamilyName('')
+      setActiveFamilyId(null)
     }
 
     const loadFromSupabase = async (sessionValue?: { user: { id: string } } | null) => {
@@ -672,7 +464,7 @@ export function useFamilyTasks() {
       if (!supabaseConfig.isConfigured) {
         if (isMounted) {
           setAuthReady(true)
-          applyDemoFallback()
+          resetFamilyData()
         }
         return
       }
@@ -682,7 +474,7 @@ export function useFamilyTasks() {
       if (!session) {
         if (isMounted) {
           setAuthReady(true)
-          applyDemoFallback()
+          resetFamilyData()
         }
         return
       }
@@ -763,7 +555,7 @@ export function useFamilyTasks() {
 
       if (!session) {
         setAuthReady(true)
-        applyDemoFallback()
+        resetFamilyData()
         return
       }
 
@@ -781,7 +573,7 @@ export function useFamilyTasks() {
 
       if (!session) {
         setAuthReady(true)
-        applyDemoFallback()
+        resetFamilyData()
         return
       }
 
@@ -1436,7 +1228,7 @@ export function useFamilyTasks() {
 
     const newReward: RewardItem = {
       id: createTempId('reward'),
-      familyId: activeFamilyId ?? 'demo-family',
+      familyId: activeFamilyId ?? '',
       title,
       description,
       xpCost,
