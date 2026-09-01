@@ -1,4 +1,4 @@
-const CACHE_NAME = 'task-manager-pwa-v2'
+const CACHE_NAME = 'task-manager-pwa-v3'
 const APP_SHELL_URLS = [
   '/',
   '/manifest.webmanifest',
@@ -9,15 +9,21 @@ const APP_SHELL_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_URLS)).then(() => self.skipWaiting()),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(APP_SHELL_URLS))
+      .then(() => self.skipWaiting()),
   )
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(cacheNames.map((cacheName) => (cacheName === CACHE_NAME ? Promise.resolve() : caches.delete(cacheName)))),
-    ).then(() => self.clients.claim()),
+    caches
+      .keys()
+      .then((cacheNames) =>
+        Promise.all(cacheNames.map((cacheName) => (cacheName === CACHE_NAME ? Promise.resolve() : caches.delete(cacheName)))),
+      )
+      .then(() => self.clients.claim()),
   )
 })
 
