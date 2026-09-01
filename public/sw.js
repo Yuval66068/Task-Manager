@@ -64,3 +64,67 @@ self.addEventListener('fetch', (event) => {
     }),
   )
 })
+
+// Web Push is a separate system from Supabase Realtime: this handler only
+// ever fires for genuine push messages delivered by the browser's push
+// service, never for Realtime events. Realtime continues to be handled
+// entirely inside the page (see useFamilyTasks.ts) and must never trigger a
+// synthetic showNotification call from here.
+self.addEventListener('push', (event) => {
+  let payload = {}
+
+  if (event.data) {
+    try {
+      payload = event.data.json()
+    } catch (error) {
+      // Payload was not valid JSON; fall back to defaults below.
+      payload = {}
+    }
+  }
+
+  const title = payload.title || 'Family Tasks'
+  const body = payload.body || 'יש לך התראה חדשה.'
+  const url = payload.url || '/'
+  const tag = payload.tag || payload.notificationId || undefined
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      icon: '/pwa-icon-192.png',
+      badge: '/pwa-icon-192.png',
+      data: {
+        url,
+        notificationId: payload.notificationId,
+        type: payload.type,
+      },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/'
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        const clientUrl = new URL(client.url)
+        if (clientUrl.origin === self.location.origin && 'focus' in client) {
+          client.focus()
+          if ('navigate' in client && targetUrl !== clientUrl.pathname) {
+            return client.navigate(targetUrl)
+          }
+          return client
+        }
+      }
+
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl)
+      }
+
+      return undefined
+    }),
+  )
+})

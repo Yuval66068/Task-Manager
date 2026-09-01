@@ -3,6 +3,7 @@ import familyTasksLogo from './images/1.jpeg'
 import { ParentDashboard } from './pages/ParentDashboard'
 import { ChildDashboard } from './pages/ChildDashboard'
 import { NotificationCenter } from './components/NotificationCenter'
+import { PushNotificationControl } from './components/PushNotificationControl'
 import { useFamilyTasks } from './hooks/useFamilyTasks'
 import { getSupabaseClient, supabaseConfig } from './services/supabase'
 import { appName, appTagline } from './utils/constants'
@@ -636,6 +637,7 @@ function App() {
             <div className="rounded-full bg-gradient-to-r from-indigo-50 to-amber-50 px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-indigo-100">
               {appTagline} · {familyName}
             </div>
+            <PushNotificationControl />
             <button
               type="button"
               onClick={handleLogout}
