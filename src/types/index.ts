@@ -159,6 +159,7 @@ export type DashboardStat = {
 
 export type FamilyDashboardData = {
   familyName: string
+  familyCode: string | null
   taskCount: number
   completionRate: number
   stats: DashboardStat

@@ -216,7 +216,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
 
   const { data: familyRow, error: familyError } = await supabase
     .from('families')
-    .select('id, name')
+    .select('id, name, family_code')
     .eq('id', familyId)
     .maybeSingle()
 
@@ -419,6 +419,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
 
   return {
     familyName: familyRow.name,
+    familyCode: familyRow.family_code ?? null,
     members,
     tasks,
     rewards,
@@ -434,6 +435,7 @@ export function useFamilyTasks() {
   const [rewardRedemptions, setRewardRedemptions] = useState<RewardRedemptionRecord[]>([])
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [familyName, setFamilyName] = useState('')
+  const [familyCode, setFamilyCode] = useState<string | null>(null)
   const [currentUserName, setCurrentUserName] = useState('')
   const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<'parent' | 'child' | null>(null)
@@ -455,6 +457,7 @@ export function useFamilyTasks() {
       setRewardRedemptions([])
       setNotifications([])
       setFamilyName('')
+      setFamilyCode(null)
       setActiveFamilyId(null)
     }
 
@@ -512,6 +515,7 @@ export function useFamilyTasks() {
           setRewardRedemptions([])
           setNotifications([])
           setFamilyName('')
+          setFamilyCode(null)
           setActiveFamilyId(null)
         }
         return
@@ -526,6 +530,7 @@ export function useFamilyTasks() {
         if (resolved) {
           setActiveFamilyId(firstFamilyId)
           setFamilyName(resolved.familyName)
+          setFamilyCode(resolved.familyCode)
           setMembers(resolved.members)
           setTasks(resolved.tasks)
           setRewards(resolved.rewards)
@@ -538,6 +543,7 @@ export function useFamilyTasks() {
           setRewardRedemptions([])
           setNotifications([])
           setFamilyName('')
+          setFamilyCode(null)
           setActiveFamilyId(null)
         }
       }
@@ -622,6 +628,7 @@ export function useFamilyTasks() {
       }
 
       setFamilyName(resolved.familyName)
+      setFamilyCode(resolved.familyCode)
       setMembers(resolved.members)
       setTasks(resolved.tasks)
       setRewards(resolved.rewards)
@@ -1649,6 +1656,7 @@ export function useFamilyTasks() {
     }
 
     setFamilyName(resolved.familyName)
+    setFamilyCode(resolved.familyCode)
     setMembers(resolved.members)
     setTasks(resolved.tasks)
     setRewards(resolved.rewards)
@@ -1722,6 +1730,7 @@ export function useFamilyTasks() {
 
   const dashboard: FamilyDashboardData = {
     familyName,
+    familyCode,
     taskCount: tasks.length,
     completionRate,
     stats: {

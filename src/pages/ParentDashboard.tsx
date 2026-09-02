@@ -15,6 +15,7 @@ import type {
 
 type ParentDashboardProps = {
   familyName: string
+  familyCode: string | null
   currentUserName: string
   stats: {
     pendingApproval: number
@@ -46,6 +47,7 @@ const statusLabels: Record<TaskItem['status'], string> = {
 
 export function ParentDashboard({
   familyName,
+  familyCode,
   currentUserName,
   stats,
   members,
@@ -86,6 +88,22 @@ export function ParentDashboard({
   const [rewardXpCost, setRewardXpCost] = useState(20)
   const [rewardActionError, setRewardActionError] = useState('')
   const [archivingRewardId, setArchivingRewardId] = useState<string | null>(null)
+  const [familyCodeCopied, setFamilyCodeCopied] = useState(false)
+
+  const handleCopyFamilyCode = async () => {
+    if (!familyCode) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(familyCode)
+      setFamilyCodeCopied(true)
+      setTimeout(() => setFamilyCodeCopied(false), 2000)
+    } catch {
+      // Clipboard access can fail (permissions/unsupported browser) --
+      // fail silently rather than crash; the code is still visible on screen.
+    }
+  }
 
   const childMembers = members.filter((member) => member.role === 'child')
   const rewardRequests = useMemo(() => rewardRedemptions.filter((redemption) => redemption.status === 'pending'), [rewardRedemptions])
@@ -326,6 +344,20 @@ export function ParentDashboard({
             <p className="family-hero-card__eyebrow">לוח הורה</p>
             <h2 className="family-hero-card__title">שלום, {currentUserName || 'הורה'}! 👋</h2>
             <p className="family-hero-card__subtitle">{familyName}</p>
+            {familyCode && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+                <span>
+                  קוד המשפחה: <strong className="tracking-widest">{familyCode}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyFamilyCode()}
+                  className="rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  {familyCodeCopied ? 'הועתק ✓' : 'העתק'}
+                </button>
+              </div>
+            )}
           </div>
           <div className="family-hero-card__chip">Family Tasks</div>
         </div>

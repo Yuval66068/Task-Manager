@@ -36,6 +36,7 @@ function App() {
 
   const {
     familyName,
+    familyCode,
     stats,
     members,
     tasks,
@@ -853,6 +854,7 @@ function App() {
           {isParentDashboard ? (
             <ParentDashboard
               familyName={familyName}
+              familyCode={familyCode}
               currentUserName={currentUserName}
               stats={stats}
               members={members}
