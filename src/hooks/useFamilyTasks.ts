@@ -649,6 +649,13 @@ export function useFamilyTasks() {
       )
       .on(
         'postgres_changes',
+        // Picks up a newly created child (via create-child) without a manual
+        // page refresh, using the existing authoritative refetch mechanism.
+        { event: '*', schema: 'public', table: 'family_members', filter: `family_id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
         // task_completions has no family_id column; rely on an authoritative refetch
         // (guarded by RLS) rather than a client-side filter here.
         { event: '*', schema: 'public', table: 'task_completions' },
@@ -1618,6 +1625,37 @@ export function useFamilyTasks() {
     }
   }
 
+  // Authoritative, on-demand family data refresh (e.g. immediately after
+  // create-child succeeds), reusing the same mapping already relied on by
+  // the Realtime-driven refetch above so a newly created child appears
+  // without requiring a manual page refresh.
+  const refreshFamilyData = async () => {
+    if (!supabaseConfig.isConfigured || !activeFamilyId) {
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      return
+    }
+
+    const resolved = await mapSupabaseFamily(activeFamilyId, session.user.id)
+    if (!resolved) {
+      return
+    }
+
+    setFamilyName(resolved.familyName)
+    setMembers(resolved.members)
+    setTasks(resolved.tasks)
+    setRewards(resolved.rewards)
+    setRewardRedemptions(resolved.rewardRedemptions)
+    setNotifications(resolved.notifications)
+  }
+
   const markNotificationRead = async (notificationId: string) => {
     if (!supabaseConfig.isConfigured || !activeFamilyId) {
       setNotifications((current) =>
@@ -1717,5 +1755,6 @@ export function useFamilyTasks() {
     notifications,
     markNotificationRead,
     markAllNotificationsRead,
+    refreshFamilyData,
   }
 }

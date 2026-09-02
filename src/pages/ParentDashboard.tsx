@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { StatCard } from '../components/StatCard'
+import { AddChildForm } from '../components/AddChildForm'
 import type {
   FamilyMember,
   RewardDraft,
@@ -32,6 +33,7 @@ type ParentDashboardProps = {
   onAddReward: (draft: RewardDraft) => void
   onArchiveReward: (rewardId: string) => void | Promise<void>
   onReviewRewardRedemption: (redemptionId: string, status: 'approved' | 'rejected') => void
+  onChildCreated: () => void | Promise<void>
 }
 
 const statusLabels: Record<TaskItem['status'], string> = {
@@ -57,6 +59,7 @@ export function ParentDashboard({
   onAddReward,
   onArchiveReward,
   onReviewRewardRedemption,
+  onChildCreated,
 }: ParentDashboardProps) {
   const [title, setTitle] = useState('')
   const [emoji, setEmoji] = useState('✅')
@@ -352,6 +355,10 @@ export function ParentDashboard({
         />
         <StatCard label="משימות באיחור" value={String(stats.overdue)} accent="bg-rose-100 text-rose-700" />
         <StatCard label="XP" value={stats.totalXp.toLocaleString('he-IL')} accent="bg-violet-100 text-violet-700" />
+      </div>
+
+      <div className="flex justify-end">
+        <AddChildForm onChildCreated={onChildCreated} />
       </div>
 
       <section className="panel-card p-5">

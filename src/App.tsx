@@ -8,10 +8,12 @@ import { useFamilyTasks } from './hooks/useFamilyTasks'
 import { getSupabaseClient, supabaseConfig } from './services/supabase'
 import { appName, appTagline } from './utils/constants'
 
+const PIN_PATTERN = /^\d{6}$/
+
 function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation'>('landing')
+  const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation' | 'child-login'>('landing')
   const [authError, setAuthError] = useState('')
   const [email, setEmail] = useState(import.meta.env.VITE_TEST_PARENT_A_EMAIL ?? '')
   const [password, setPassword] = useState('')
@@ -23,7 +25,13 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isResolvingRole, setIsResolvingRole] = useState(false)
   const [resolvedDashboardRole, setResolvedDashboardRole] = useState<'parent' | 'child' | null>(null)
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('')
+  const [childLoginFamilyCode, setChildLoginFamilyCode] = useState('')
+  const [childLoginUsername, setChildLoginUsername] = useState('')
+  const [childLoginPin, setChildLoginPin] = useState('')
+  const [childLoginError, setChildLoginError] = useState('')
+  const [isChildLoginSubmitting, setIsChildLoginSubmitting] = useState(false)
   const onboardingInFlightRef = useRef(false)
 
   const {
@@ -48,8 +56,9 @@ function App() {
     currentUserRole,
     currentUserName,
     authReady,
+    refreshFamilyData,
   } = useFamilyTasks()
-  const child = members.find((member) => member.role === 'child') ?? members[0]
+  const child = members.find((member) => member.id === authenticatedUserId && member.role === 'child')
   const isParentDashboard = resolvedDashboardRole === 'parent' || currentUserRole === 'parent'
 
   async function resolveAuthenticatedMembershipRole(): Promise<'parent' | 'child' | null> {
@@ -60,8 +69,11 @@ function App() {
     } = await supabase.auth.getUser()
 
     if (userError || !user) {
+      setAuthenticatedUserId(null)
       return null
     }
+
+    setAuthenticatedUserId(user.id)
 
     const { data: memberships, error: membershipsError } = await supabase
       .from('family_members')
@@ -139,6 +151,7 @@ function App() {
       setIsAuthenticated(Boolean(session))
       if (!session) {
         setResolvedDashboardRole(null)
+        setAuthenticatedUserId(null)
         setIsCheckingSession(false)
         return
       }
@@ -157,6 +170,7 @@ function App() {
       setIsAuthenticated(Boolean(session))
       if (!session) {
         setResolvedDashboardRole(null)
+        setAuthenticatedUserId(null)
         setIsCheckingSession(false)
         onboardingInFlightRef.current = false
         return
@@ -214,6 +228,68 @@ function App() {
 
     setAuthError('המשתמש עדיין לא משויך למשפחה')
     setIsAuthenticated(false)
+  }
+
+  const handleChildLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const familyCode = childLoginFamilyCode.trim().toUpperCase()
+    const username = childLoginUsername.trim()
+
+    if (!familyCode || familyCode.length !== 6 || !username || !PIN_PATTERN.test(childLoginPin)) {
+      setChildLoginError('יש למלא קוד משפחה, שם משתמש וקוד PIN בן 6 ספרות')
+      setChildLoginPin('')
+      return
+    }
+
+    setIsChildLoginSubmitting(true)
+    setChildLoginError('')
+    setIsResolvingRole(true)
+
+    const supabase = getSupabaseClient()
+
+    try {
+      const { data, error } = await supabase.functions.invoke('child-login', {
+        body: {
+          familyCode,
+          childUsername: username,
+          pin: childLoginPin,
+        },
+      })
+
+      // PIN is never kept around after the attempt, success or failure.
+      setChildLoginPin('')
+
+      if (error || data?.error || !data?.access_token || !data?.refresh_token) {
+        setChildLoginError('קוד המשפחה, שם המשתמש או קוד ה-PIN שגויים')
+        setIsChildLoginSubmitting(false)
+        setIsResolvingRole(false)
+        return
+      }
+
+      const { error: setSessionError } = await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      })
+
+      if (setSessionError) {
+        setChildLoginError('קוד המשפחה, שם המשתמש או קוד ה-PIN שגויים')
+        setIsChildLoginSubmitting(false)
+        setIsResolvingRole(false)
+        return
+      }
+
+      // The existing onAuthStateChange listener resolves the role and
+      // routes to the exact authenticated child's ChildDashboard -- no
+      // parallel session/routing system is introduced here.
+      setIsAuthenticated(true)
+      setIsChildLoginSubmitting(false)
+    } catch {
+      setChildLoginPin('')
+      setChildLoginError('קוד המשפחה, שם המשתמש או קוד ה-PIN שגויים')
+      setIsChildLoginSubmitting(false)
+      setIsResolvingRole(false)
+    }
   }
 
   const handleSignup = async (event: FormEvent<HTMLFormElement>) => {
@@ -304,6 +380,7 @@ function App() {
     setIsAuthenticated(false)
     setIsResolvingRole(false)
     setResolvedDashboardRole(null)
+    setAuthenticatedUserId(null)
     setAuthError('')
     setPendingConfirmationEmail('')
     setAuthView('landing')
@@ -403,8 +480,15 @@ function App() {
                 <button type="button" onClick={() => setAuthView('login')} className="auth-choice auth-choice--parent">
                   <span className="auth-choice__icon">🔐</span>
                   <div>
-                    <span className="auth-choice__label">התחברות</span>
+                    <span className="auth-choice__label">התחברות הורה</span>
                     <span className="auth-choice__meta">כניסה לחשבון</span>
+                  </div>
+                </button>
+                <button type="button" onClick={() => setAuthView('child-login')} className="auth-choice auth-choice--parent">
+                  <span className="auth-choice__icon">🧒</span>
+                  <div>
+                    <span className="auth-choice__label">התחברות ילד</span>
+                    <span className="auth-choice__meta">קוד משפחה + שם משתמש + PIN</span>
                   </div>
                 </button>
                 <button type="button" onClick={() => setAuthView('signup')} className="auth-choice auth-choice--gold">
@@ -509,6 +593,82 @@ function App() {
                   className="auth-submit auth-submit--parent"
                 >
                   {isSubmitting ? 'יוצר משפחה...' : 'צור משפחה'}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (authView === 'child-login') {
+      return (
+        <div dir="rtl" className="auth-shell min-h-screen px-4 py-8 sm:px-6">
+          <div className="mx-auto max-w-lg">
+            <button type="button" onClick={() => setAuthView('landing')} className="back-link">
+              ← חזרה
+            </button>
+
+            <div className="auth-card auth-card--parent">
+              <div className="auth-card__brand">
+                <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+                <p className="brand-label">Family Tasks</p>
+              </div>
+
+              <div className="auth-card__header">
+                <h2>התחברות ילד</h2>
+                <p>הזינו קוד משפחה, שם משתמש וקוד PIN</p>
+              </div>
+
+              <form className="auth-form" onSubmit={handleChildLogin}>
+                <div className="field-group">
+                  <label htmlFor="child-login-family-code">קוד משפחה</label>
+                  <input
+                    id="child-login-family-code"
+                    type="text"
+                    value={childLoginFamilyCode}
+                    onChange={(event) => setChildLoginFamilyCode(event.target.value.toUpperCase().slice(0, 6))}
+                    maxLength={6}
+                    className="auth-input"
+                    placeholder="ABC234"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="child-login-username">שם משתמש</label>
+                  <input
+                    id="child-login-username"
+                    type="text"
+                    value={childLoginUsername}
+                    onChange={(event) => setChildLoginUsername(event.target.value.slice(0, 30))}
+                    maxLength={30}
+                    className="auth-input"
+                    placeholder="שם המשתמש שלך"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label htmlFor="child-login-pin">PIN</label>
+                  <input
+                    id="child-login-pin"
+                    type="password"
+                    inputMode="numeric"
+                    value={childLoginPin}
+                    onChange={(event) => setChildLoginPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    maxLength={6}
+                    className="auth-input"
+                    placeholder="6 ספרות"
+                  />
+                </div>
+
+                {childLoginError && <div className="auth-alert auth-alert--error">{childLoginError}</div>}
+
+                <button
+                  type="submit"
+                  disabled={isChildLoginSubmitting || !supabaseConfig.isConfigured}
+                  className="auth-submit auth-submit--parent"
+                >
+                  {isChildLoginSubmitting ? 'מתחבר...' : 'התחברות'}
                 </button>
               </form>
             </div>
@@ -624,6 +784,42 @@ function App() {
     )
   }
 
+  if (!isParentDashboard && !child) {
+    console.error(
+      '[App] Authenticated user resolved as role=child via family_members, but no matching FamilyMember record was found for userId=',
+      authenticatedUserId,
+    )
+
+    return (
+      <div dir="rtl" className="auth-shell min-h-screen px-4 py-6 sm:px-6">
+        <div className="mx-auto max-w-lg">
+          <div className="auth-card auth-card--parent">
+            <div className="auth-card__brand">
+              <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
+              <p className="brand-label">Family Tasks</p>
+            </div>
+
+            <div className="auth-card__header">
+              <h2>לא ניתן לטעון את פרופיל הילד/ה</h2>
+            </div>
+
+            <div className="auth-alert auth-alert--warning">
+              אירעה שגיאה בטעינת נתוני המשתמש. נסו להתחבר מחדש או פנו לתמיכה.
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="auth-submit auth-submit--parent"
+            >
+              התנתקות
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div dir="rtl" className="app-shell min-h-screen text-slate-800">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -670,17 +866,20 @@ function App() {
               onAddReward={addReward}
               onArchiveReward={archiveReward}
               onReviewRewardRedemption={reviewRewardRedemption}
+              onChildCreated={refreshFamilyData}
             />
           ) : (
-            <ChildDashboard
-              child={child}
-              currentUserName={currentUserName}
-              tasks={tasks.filter((task) => task.memberId === child.id)}
-              onSubmitTaskCompletion={submitTaskCompletion}
-              rewards={rewards}
-              rewardRedemptions={rewardRedemptions}
-              onRequestReward={requestReward}
-            />
+            child && (
+              <ChildDashboard
+                child={child}
+                currentUserName={currentUserName}
+                tasks={tasks.filter((task) => task.memberId === child.id)}
+                onSubmitTaskCompletion={submitTaskCompletion}
+                rewards={rewards}
+                rewardRedemptions={rewardRedemptions}
+                onRequestReward={requestReward}
+              />
+            )
           )}
         </main>
       </div>

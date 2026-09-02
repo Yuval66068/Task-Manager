@@ -1,10 +1,29 @@
 # Supabase local/project configuration.
 #
-# Only the settings needed for the send-push-notification Edge Function are
-# defined here. This does not disable JWT verification globally — it is
-# scoped to this one function, which uses @supabase/server's
-# withSupabase({ auth: 'secret' }) to require a valid Supabase secret API
-# key in the `apikey` header before any request is processed.
+# Only the settings needed for each Edge Function are defined here.
+# Nothing here disables JWT verification globally.
 
+# send-push-notification: uses @supabase/server's withSupabase({ auth:
+# 'secret' }) to require a valid Supabase secret API key in the `apikey`
+# header before any request is processed.
 [functions.send-push-notification]
 verify_jwt = false
+
+# create-child: uses @supabase/server's withSupabase({ auth: 'user' }),
+# which validates the caller's own Supabase Auth JWT. This is an
+# authenticated-user function, so platform-level JWT verification stays
+# enabled (verify_jwt = true) -- unlike send-push-notification (a
+# service-to-service webhook target authenticated via a secret apikey),
+# this function must never be deployed with --no-verify-jwt.
+[functions.create-child]
+verify_jwt = true
+
+# child-login: a PUBLIC login endpoint, called before any Supabase Auth
+# session exists. Uses @supabase/server's withSupabase({ auth: 'none' }) --
+# no platform credential is available yet, so platform-level JWT
+# verification must be disabled for this function only. This does not
+# affect create-child (verify_jwt = true, above) or global JWT
+# verification for the rest of the project.
+[functions.child-login]
+verify_jwt = false
+
