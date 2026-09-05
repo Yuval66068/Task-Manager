@@ -32,6 +32,8 @@ type TaskRowRecord = {
   priority: string | null
   recurrence: string | null
   requires_photo?: boolean | null
+  recurrence_anchor_day?: number | null
+  recurrence_source_task_id?: string | null
 }
 
 type QueryError = {
@@ -55,6 +57,83 @@ const updateFallbackMemberXp = (member: FamilyMember, xpDelta: number, completed
 }
 
 const createTempId = (prefix: string) => `${prefix}-${Date.now()}`
+
+const getMonthlyAnchorDay = (
+  dueAt: string | null | undefined,
+  recurrence: TaskRecurrence,
+  fallbackAnchorDay?: number | null,
+): number | null => {
+  if (recurrence !== 'monthly' || !dueAt) {
+    return fallbackAnchorDay ?? null
+  }
+
+  const baseDate = new Date(dueAt)
+  if (Number.isNaN(baseDate.getTime())) {
+    return fallbackAnchorDay ?? null
+  }
+
+  const anchorDay = fallbackAnchorDay ?? baseDate.getDate()
+  const clampedDay = Math.max(1, Math.min(anchorDay, 31))
+  const monthLength = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate()
+  return Math.min(clampedDay, monthLength)
+}
+
+const getNextRecurrenceDate = (
+  sourceDueAt: string | null | undefined,
+  recurrence: TaskRecurrence,
+  anchorDay?: number | null,
+): string | null => {
+  if (!sourceDueAt || recurrence === 'none') {
+    return null
+  }
+
+  const baseDate = new Date(sourceDueAt)
+  if (Number.isNaN(baseDate.getTime())) {
+    return null
+  }
+
+  const nextDate = new Date(baseDate)
+
+  switch (recurrence) {
+    case 'daily':
+      nextDate.setDate(nextDate.getDate() + 1)
+      break
+    case 'weekly':
+      nextDate.setDate(nextDate.getDate() + 7)
+      break
+    case 'monthly': {
+      const nextMonthIndex = nextDate.getMonth() + 1
+      const nextMonth = new Date(nextDate.getFullYear(), nextMonthIndex, 1)
+      const resolvedAnchorDay = getMonthlyAnchorDay(sourceDueAt, recurrence, anchorDay) ?? nextDate.getDate()
+      const monthLength = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
+      const dayOfMonth = Math.min(Math.max(1, resolvedAnchorDay), monthLength)
+      nextMonth.setDate(dayOfMonth)
+      return nextMonth.toISOString()
+    }
+    default:
+      return null
+  }
+
+  return nextDate.toISOString()
+}
+
+const resolveTaskStatus = (value: string | null | undefined, dueAt: string | null | undefined): TaskStatus => {
+  const normalized = toTaskStatus(value)
+  if (normalized === 'approved' || normalized === 'rejected') {
+    return normalized
+  }
+
+  if (!dueAt) {
+    return normalized
+  }
+
+  const dueDate = new Date(dueAt)
+  if (Number.isNaN(dueDate.getTime())) {
+    return normalized
+  }
+
+  return dueDate.getTime() <= Date.now() && normalized !== 'completed' ? 'overdue' : normalized
+}
 
 const toTaskStatus = (value: string | null | undefined): TaskStatus => {
   switch (value) {
@@ -398,7 +477,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
       title: task.title,
       emoji: task.emoji || '✅',
       xp: task.xp ?? 0,
-      status: toTaskStatus(task.status),
+      status: resolveTaskStatus(task.status, task.due_at),
       memberId: task.assigned_to,
       dueAt: task.due_at ?? null,
       priority: toTaskPriority(task.priority),
@@ -656,9 +735,19 @@ export function useFamilyTasks() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'families', filter: `id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
         // Picks up a newly created child (via create-child) without a manual
         // page refresh, using the existing authoritative refetch mechanism.
         { event: '*', schema: 'public', table: 'family_members', filter: `family_id=eq.${activeFamilyId}` },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
         scheduleRefetch,
       )
       .on(
@@ -683,6 +772,11 @@ export function useFamilyTasks() {
         // user_rewards has no family_id column; rely on an authoritative refetch
         // (guarded by RLS) rather than a client-side filter here.
         { event: '*', schema: 'public', table: 'user_rewards' },
+        scheduleRefetch,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_achievements' },
         scheduleRefetch,
       )
       .subscribe((status, error) => {
@@ -712,6 +806,80 @@ export function useFamilyTasks() {
     }
     return Math.round((totalCompleted / totalPlanned) * 100)
   }, [members])
+
+  const createRecurringTaskOccurrence = async (task: TaskItem, actorId: string) => {
+    if (task.recurrence === 'none' || !activeFamilyId) {
+      return
+    }
+
+    const recurrenceAnchorDay = getMonthlyAnchorDay(task.dueAt, task.recurrence)
+    const nextDueAt = getNextRecurrenceDate(task.dueAt, task.recurrence, recurrenceAnchorDay)
+    if (!nextDueAt) {
+      return
+    }
+
+    const supabase = getSupabaseClient()
+    const nextTaskPayload = {
+      family_id: activeFamilyId,
+      title: task.title,
+      emoji: task.emoji,
+      xp: task.xp,
+      assigned_to: task.memberId,
+      created_by: actorId,
+      status: 'pending',
+      due_at: nextDueAt,
+      priority: task.priority,
+      recurrence: task.recurrence,
+      requires_photo: task.requiresPhoto,
+      recurrence_anchor_day: recurrenceAnchorDay,
+      recurrence_source_task_id: task.id,
+    }
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert(nextTaskPayload)
+      .select(
+        'id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, requires_photo, recurrence_anchor_day, recurrence_source_task_id',
+      )
+      .single()
+
+    if (error) {
+      if (error.code === '23505') {
+        return
+      }
+
+      console.error('Failed to create recurring task occurrence:', error)
+      return
+    }
+
+    if (!data) {
+      console.error('Failed to create recurring task occurrence: missing task row')
+      return
+    }
+
+    const nextOccurrence: TaskItem = {
+      id: data.id,
+      title: data.title,
+      emoji: data.emoji || '✅',
+      xp: data.xp ?? 0,
+      status: resolveTaskStatus(data.status, data.due_at),
+      memberId: data.assigned_to,
+      dueAt: data.due_at ?? null,
+      priority: toTaskPriority(data.priority),
+      recurrence: toTaskRecurrence(data.recurrence),
+      requiresPhoto: Boolean(data.requires_photo),
+      completionId: null,
+      completionStatus: null,
+      completionNote: null,
+      proofPhotoPath: null,
+      proofPhotoUrl: null,
+      submittedAt: null,
+      reviewedBy: null,
+      reviewedAt: null,
+    }
+
+    setTasks((current) => [nextOccurrence, ...current])
+  }
 
   const addTask = async (draft: TaskDraft) => {
     const trimmedTitle = draft.title.trim() || 'משימה חדשה'
@@ -755,6 +923,8 @@ export function useFamilyTasks() {
       return
     }
 
+    const recurrenceAnchorDay = getMonthlyAnchorDay(dueAt, normalizedRecurrence)
+
     const buildInsertPayload = (withMetadata: boolean) => ({
       family_id: activeFamilyId,
       title: trimmedTitle,
@@ -769,6 +939,7 @@ export function useFamilyTasks() {
         ? {
             priority: normalizedPriority,
             recurrence: normalizedRecurrence,
+            recurrence_anchor_day: recurrenceAnchorDay,
           }
         : {}),
     })
@@ -819,7 +990,7 @@ export function useFamilyTasks() {
       title: serverTask.title,
       emoji: serverTask.emoji || '✅',
       xp: serverTask.xp ?? 0,
-      status: toTaskStatus(serverTask.status),
+        status: resolveTaskStatus(serverTask.status, serverTask.due_at),
       memberId: serverTask.assigned_to,
       dueAt: serverTask.due_at ?? null,
       priority: toTaskPriority(serverTask.priority),
@@ -1294,6 +1465,10 @@ export function useFamilyTasks() {
         decision,
       })
       return
+    }
+
+    if (decision === 'approved' && task.recurrence !== 'none') {
+      await createRecurringTaskOccurrence(task, session.user.id)
     }
 
     const updatedTask: TaskItem = {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { getTaskStatusLabel } from '../utils/taskStatusLabels'
 import type { AchievementProgress, FamilyMember, RewardItem, RewardRedemptionRecord, TaskItem } from '../types'
 
 type ChildDashboardProps = {
@@ -557,7 +558,7 @@ export function ChildDashboard({
                     {task.emoji} {task.title}
                   </span>
                   <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
-                    {task.status === 'pending' ? 'ממתינה לאישור' : task.status}
+                    {getTaskStatusLabel(task.status)}
                   </span>
                 </div>
 

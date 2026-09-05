@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { StatCard } from '../components/StatCard'
 import { AddChildForm } from '../components/AddChildForm'
+import { getTaskStatusLabel } from '../utils/taskStatusLabels'
 import type {
   FamilyMember,
   RewardDraft,
@@ -35,14 +36,6 @@ type ParentDashboardProps = {
   onArchiveReward: (rewardId: string) => void | Promise<void>
   onReviewRewardRedemption: (redemptionId: string, status: 'approved' | 'rejected') => void
   onChildCreated: () => void | Promise<void>
-}
-
-const statusLabels: Record<TaskItem['status'], string> = {
-  pending: 'ממתין',
-  completed: 'הושלם',
-  approved: 'אושר',
-  rejected: 'נדחה',
-  overdue: 'באיחור',
 }
 
 export function ParentDashboard({
@@ -848,7 +841,7 @@ export function ParentDashboard({
                             ? 'bg-rose-100 text-rose-700'
                             : 'bg-slate-200 text-slate-700'
                   }`}>
-                    {statusLabels[task.status]}
+                    {getTaskStatusLabel(task.status)}
                   </span>
                 </div>
 
