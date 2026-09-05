@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import familyTasksLogo from './images/1.jpeg'
 import { ParentDashboard } from './pages/ParentDashboard'
 import { ChildDashboard } from './pages/ChildDashboard'
@@ -13,7 +13,6 @@ const PIN_PATTERN = /^\d{6}$/
 function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation' | 'child-login'>('landing')
   const [authError, setAuthError] = useState('')
   const [email, setEmail] = useState(import.meta.env.VITE_TEST_PARENT_A_EMAIL ?? '')
   const [password, setPassword] = useState('')
@@ -27,6 +26,12 @@ function App() {
   const [resolvedDashboardRole, setResolvedDashboardRole] = useState<'parent' | 'child' | null>(null)
   const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('')
+  const [pendingInviteToken, setPendingInviteToken] = useState(
+    () => new URLSearchParams(window.location.search).get('invite')?.trim() ?? '',
+  )
+  const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation' | 'child-login'>(() =>
+    new URLSearchParams(window.location.search).get('invite') ? 'login' : 'landing',
+  )
   const [childLoginFamilyCode, setChildLoginFamilyCode] = useState('')
   const [childLoginUsername, setChildLoginUsername] = useState('')
   const [childLoginPin, setChildLoginPin] = useState('')
@@ -62,7 +67,7 @@ function App() {
   const child = members.find((member) => member.id === authenticatedUserId && member.role === 'child')
   const isParentDashboard = resolvedDashboardRole === 'parent' || currentUserRole === 'parent'
 
-  async function resolveAuthenticatedMembershipRole(): Promise<'parent' | 'child' | null> {
+  const resolveAuthenticatedMembershipRole = useCallback(async (): Promise<'parent' | 'child' | null> => {
     const supabase = getSupabaseClient()
     const {
       data: { user },
@@ -88,9 +93,49 @@ function App() {
 
     const firstMembershipRole = memberships[0]?.role
     return firstMembershipRole === 'parent' ? 'parent' : 'child'
+  }, [])
+
+  const acceptPendingInvite = useCallback(
+    async (inviteToken: string) => {
+      const nextToken = inviteToken.trim()
+      if (!nextToken) {
+        return false
+      }
+
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.functions.invoke('accept-family-invite', {
+        body: { inviteToken: nextToken },
+      })
+
+      if (error || data?.error) {
+        setAuthError(typeof data?.error === 'string' ? data.error : 'לא ניתן היה לאשר את ההזמנה')
+        return false
+      }
+
+      setPendingInviteToken('')
+      setAuthError('')
+      const nextRole = await resolveAuthenticatedMembershipRole()
+      setResolvedDashboardRole(nextRole)
+      await refreshFamilyData()
+      return Boolean(nextRole)
+    },
+    [refreshFamilyData, resolveAuthenticatedMembershipRole],
+  )
+
+  const finalizeAuthenticatedSession = async () => {
+    setIsResolvingRole(true)
+
+    const nextRole = await resolveAuthenticatedMembershipRole()
+    setResolvedDashboardRole(nextRole)
+    setIsAuthenticated(Boolean(nextRole))
+    setIsResolvingRole(false)
+
+    if (nextRole && !isCheckingSession) {
+      await refreshFamilyData()
+    }
   }
 
-  async function completeParentOnboardingIfNeeded() {
+  const completeParentOnboardingIfNeeded = useCallback(async () => {
     if (onboardingInFlightRef.current) {
       return
     }
@@ -139,7 +184,7 @@ function App() {
     } finally {
       onboardingInFlightRef.current = false
     }
-  }
+  }, [])
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -159,6 +204,9 @@ function App() {
 
       const nextRole = await resolveAuthenticatedMembershipRole()
       setResolvedDashboardRole(nextRole)
+      if (pendingInviteToken) {
+        await acceptPendingInvite(pendingInviteToken)
+      }
       await completeParentOnboardingIfNeeded()
       setIsCheckingSession(false)
     }
@@ -180,6 +228,9 @@ function App() {
       void (async () => {
         const nextRole = await resolveAuthenticatedMembershipRole()
         setResolvedDashboardRole(nextRole)
+        if (pendingInviteToken) {
+          await acceptPendingInvite(pendingInviteToken)
+        }
         await completeParentOnboardingIfNeeded()
         setIsCheckingSession(false)
       })()
@@ -188,7 +239,7 @@ function App() {
     return () => {
       subscription.unsubscribe()
     }
-  }, [])
+  }, [acceptPendingInvite, completeParentOnboardingIfNeeded, pendingInviteToken, resolveAuthenticatedMembershipRole])
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -221,6 +272,14 @@ function App() {
     setIsSubmitting(false)
     setIsResolvingRole(false)
     setResolvedDashboardRole(resolvedRole)
+
+    if (pendingInviteToken) {
+      const inviteAccepted = await acceptPendingInvite(pendingInviteToken)
+      if (inviteAccepted) {
+        setIsAuthenticated(true)
+        return
+      }
+    }
 
     if (resolvedRole === 'parent' || resolvedRole === 'child') {
       setIsAuthenticated(true)
@@ -280,10 +339,10 @@ function App() {
         return
       }
 
-      // The existing onAuthStateChange listener resolves the role and
-      // routes to the exact authenticated child's ChildDashboard -- no
-      // parallel session/routing system is introduced here.
-      setIsAuthenticated(true)
+      // Resolve the child role immediately so the authenticated session can
+      // advance past the generic loading view without waiting for a stale
+      // browser refresh.
+      await finalizeAuthenticatedSession()
       setIsChildLoginSubmitting(false)
     } catch {
       setChildLoginPin('')
@@ -338,6 +397,16 @@ function App() {
     }
 
     if (data.session) {
+      if (pendingInviteToken) {
+        const inviteAccepted = await acceptPendingInvite(pendingInviteToken)
+        if (inviteAccepted) {
+          setIsAuthenticated(true)
+          setIsSubmitting(false)
+          setAuthView('landing')
+          return
+        }
+      }
+
       await completeParentOnboardingIfNeeded()
       setIsAuthenticated(true)
       setIsSubmitting(false)
@@ -385,6 +454,7 @@ function App() {
     setAuthError('')
     setPendingConfirmationEmail('')
     setAuthView('landing')
+    setPendingInviteToken('')
     setPassword('')
     setSignupFullName('')
     setSignupFamilyName('')
@@ -393,10 +463,8 @@ function App() {
     setSignupConfirmPassword('')
   }
 
-  const isAwaitingRealFamilyData =
-    isAuthenticated && (!authReady || !resolvedDashboardRole || !familyName || !currentUserName)
   const shouldShowRoleLoading =
-    isCheckingSession || !authReady || isResolvingRole || isAwaitingRealFamilyData || (isAuthenticated && resolvedDashboardRole === null && !authError)
+    isCheckingSession || (!isAuthenticated && !authReady) || isResolvingRole || (isAuthenticated && !authReady)
 
   if (shouldShowRoleLoading) {
     return (

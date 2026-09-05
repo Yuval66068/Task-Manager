@@ -194,10 +194,14 @@ export function ChildDashboard({
     }
   }
 
+  const [showApprovedTaskHistory, setShowApprovedTaskHistory] = useState(false)
+
   const childRewardHistory = useMemo(
     () => rewardRedemptions.filter((entry) => entry.userId === child.id),
     [child.id, rewardRedemptions],
   )
+  const activeTasks = useMemo(() => tasks.filter((task) => task.status !== 'approved'), [tasks])
+  const approvedTaskHistory = useMemo(() => tasks.filter((task) => task.status === 'approved'), [tasks])
 
   const clearProof = (taskId: string) => {
     setSelectedProofs((current) => {
@@ -342,6 +346,13 @@ export function ChildDashboard({
           {child.achievementXp > 0 && <span className="purple">Achievements +{child.achievementXp} XP</span>}
         </div>
       </div>
+
+      {activeTasks.length === 0 && (
+        <section className="panel-card p-5">
+          <h3 className="text-lg font-bold text-slate-900">אין משימות פעילות כרגע</h3>
+          <p className="mt-2 text-sm text-slate-600">כשתוקם משימה חדשה, היא תופיע כאן.</p>
+        </section>
+      )}
 
       {submissionSuccess && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -545,107 +556,142 @@ export function ChildDashboard({
       <div className="panel-card p-5">
         <h3 className="text-lg font-bold text-slate-900">המשימות שלך היום</h3>
         <ul className="mt-4 space-y-3">
-          {tasks.map((task) => {
-            const dueLabel = formatDueDateTime(task.dueAt)
-            const completionLabel = formatCompletionStatus(task.completionStatus)
-            const canSubmit = task.status !== 'approved' && task.completionStatus !== 'submitted'
-            const proof = selectedProofs[task.id]
+          {activeTasks.length === 0 ? (
+            <li className="text-sm text-slate-500">אין כרגע משימות פעילות.</li>
+          ) : (
+            activeTasks.map((task) => {
+              const dueLabel = formatDueDateTime(task.dueAt)
+              const completionLabel = formatCompletionStatus(task.completionStatus)
+              const canSubmit = task.status !== 'approved' && task.completionStatus !== 'submitted'
+              const proof = selectedProofs[task.id]
 
-            return (
-              <li key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3 text-right text-slate-700 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span>
-                    {task.emoji} {task.title}
-                  </span>
-                  <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
-                    {getTaskStatusLabel(task.status)}
-                  </span>
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span
-                    className={`rounded-full px-2 py-0.5 font-semibold ${
-                      task.completionStatus === 'submitted'
-                        ? 'bg-amber-100 text-amber-700'
-                        : task.completionStatus === 'approved'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : task.completionStatus === 'rejected'
-                            ? 'bg-rose-100 text-rose-700'
-                            : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {completionLabel}
-                  </span>
-                  {dueLabel && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">⏰ {dueLabel}</span>}
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-700">{priorityLabel[task.priority]}</span>
-                  {task.recurrence !== 'none' && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">
-                      {task.recurrence === 'daily' ? 'יומית' : task.recurrence === 'weekly' ? 'שבועית' : 'חודשית'}
+              return (
+                <li key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3 text-right text-slate-700 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>
+                      {task.emoji} {task.title}
                     </span>
-                  )}
-                  {task.requiresPhoto && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-fuchsia-700">נדרשת תמונה</span>}
-                </div>
-
-                {task.completionNote && <p className="mt-2 text-xs text-slate-600">משוב: {task.completionNote}</p>}
-
-                {task.requiresPhoto && canSubmit && (
-                  <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white p-3">
-                    {proof?.previewUrl ? (
-                      <img src={proof.previewUrl} alt="Proof preview" className="h-44 w-full rounded-xl object-cover" />
-                    ) : (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
-                        בחר או צלם תמונה לפני השליחה
-                      </div>
-                    )}
-
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500">
-                        בחר תמונה
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          className="hidden"
-                          onChange={(event) => handleFileChange(task.id, event.target.files?.[0] ?? null)}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => handleFileChange(task.id, null)}
-                        className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                      >
-                        נקה בחירה
-                      </button>
-                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
+                      {getTaskStatusLabel(task.status)}
+                    </span>
                   </div>
-                )}
 
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="font-bold text-emerald-700">+{task.xp} XP</span>
-                  {canSubmit && (
-                    <button
-                      type="button"
-                      onClick={() => handleSubmit(task)}
-                      disabled={(task.requiresPhoto && !proof) || submittingTaskId === task.id}
-                      className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                    <span
+                      className={`rounded-full px-2 py-0.5 font-semibold ${
+                        task.completionStatus === 'submitted'
+                          ? 'bg-amber-100 text-amber-700'
+                          : task.completionStatus === 'approved'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : task.completionStatus === 'rejected'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-slate-200 text-slate-700'
+                      }`}
                     >
-                      {submittingTaskId === task.id
-                        ? 'שולח...'
-                        : task.requiresPhoto
-                          ? 'שלח עם תמונה'
-                          : 'סמן הושלם'}
-                    </button>
-                  )}
-                  {!canSubmit && (
-                    <span className="rounded-full bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">
                       {completionLabel}
                     </span>
+                    {dueLabel && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">⏰ {dueLabel}</span>}
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-700">{priorityLabel[task.priority]}</span>
+                    {task.recurrence !== 'none' && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">
+                        {task.recurrence === 'daily' ? 'יומית' : task.recurrence === 'weekly' ? 'שבועית' : 'חודשית'}
+                      </span>
+                    )}
+                    {task.requiresPhoto && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-fuchsia-700">נדרשת תמונה</span>}
+                  </div>
+
+                  {task.completionNote && <p className="mt-2 text-xs text-slate-600">משוב: {task.completionNote}</p>}
+
+                  {task.requiresPhoto && canSubmit && (
+                    <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white p-3">
+                      {proof?.previewUrl ? (
+                        <img src={proof.previewUrl} alt="Proof preview" className="h-44 w-full rounded-xl object-cover" />
+                      ) : (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+                          בחר או צלם תמונה לפני השליחה
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <label className="inline-flex cursor-pointer items-center justify-center rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500">
+                          בחר תמונה
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                            onChange={(event) => handleFileChange(task.id, event.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleFileChange(task.id, null)}
+                          className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          נקה בחירה
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </div>
-              </li>
-            )
-          })}
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="font-bold text-emerald-700">+{task.xp} XP</span>
+                    {canSubmit && (
+                      <button
+                        type="button"
+                        onClick={() => handleSubmit(task)}
+                        disabled={(task.requiresPhoto && !proof) || submittingTaskId === task.id}
+                        className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {submittingTaskId === task.id
+                          ? 'שולח...'
+                          : task.requiresPhoto
+                            ? 'שלח עם תמונה'
+                            : 'סמן הושלם'}
+                      </button>
+                    )}
+                    {!canSubmit && (
+                      <span className="rounded-full bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                        {completionLabel}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              )
+            })
+          )}
         </ul>
+
+        {approvedTaskHistory.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <button
+              type="button"
+              onClick={() => setShowApprovedTaskHistory((current) => !current)}
+              className="flex w-full items-center justify-between text-right text-sm font-semibold text-slate-700"
+            >
+              <span>היסטוריית משימות ({approvedTaskHistory.length})</span>
+              <span>{showApprovedTaskHistory ? '▲' : '▼'}</span>
+            </button>
+
+            {showApprovedTaskHistory && (
+              <div className="mt-3 space-y-2">
+                {approvedTaskHistory.map((task) => (
+                  <div key={task.id} className="rounded-xl border border-emerald-200 bg-white p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{task.emoji} {task.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">+{task.xp} XP</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        {getTaskStatusLabel(task.status)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </section>
   )

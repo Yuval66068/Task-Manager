@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { StatCard } from '../components/StatCard'
 import { AddChildForm } from '../components/AddChildForm'
+import { getSupabaseClient } from '../services/supabase'
 import { getTaskStatusLabel } from '../utils/taskStatusLabels'
 import type {
   FamilyMember,
@@ -82,6 +83,17 @@ export function ParentDashboard({
   const [rewardActionError, setRewardActionError] = useState('')
   const [archivingRewardId, setArchivingRewardId] = useState<string | null>(null)
   const [familyCodeCopied, setFamilyCodeCopied] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteError, setInviteError] = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState('')
+  const [isInviting, setIsInviting] = useState(false)
+  const childMembers = members.filter((member) => member.role === 'child')
+  const [resetPinTargetId, setResetPinTargetId] = useState(childMembers[0]?.id ?? '')
+  const [resetPinNew, setResetPinNew] = useState('')
+  const [resetPinConfirm, setResetPinConfirm] = useState('')
+  const [resetPinError, setResetPinError] = useState('')
+  const [resetPinSuccess, setResetPinSuccess] = useState('')
+  const [isResettingPin, setIsResettingPin] = useState(false)
 
   const handleCopyFamilyCode = async () => {
     if (!familyCode) {
@@ -98,7 +110,10 @@ export function ParentDashboard({
     }
   }
 
-  const childMembers = members.filter((member) => member.role === 'child')
+  const [showApprovedTaskHistory, setShowApprovedTaskHistory] = useState(false)
+
+  const activeTasks = useMemo(() => tasks.filter((task) => task.status !== 'approved'), [tasks])
+  const approvedTaskHistory = useMemo(() => tasks.filter((task) => task.status === 'approved'), [tasks])
   const rewardRequests = useMemo(() => rewardRedemptions.filter((redemption) => redemption.status === 'pending'), [rewardRedemptions])
   const rewardHistory = useMemo(
     () => rewardRedemptions.filter((redemption) => redemption.status !== 'pending'),
@@ -177,6 +192,94 @@ export function ParentDashboard({
       case 'pending':
       default:
         return 'ממתין'
+    }
+  }
+
+  const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmedEmail = inviteEmail.trim().toLowerCase()
+
+    if (!trimmedEmail) {
+      setInviteError('יש להזין כתובת אימייל')
+      setInviteSuccess('')
+      return
+    }
+
+    setIsInviting(true)
+    setInviteError('')
+    setInviteSuccess('')
+
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.functions.invoke('family-invite', {
+        body: {
+          email: trimmedEmail,
+        },
+      })
+
+      if (error || data?.error) {
+        setInviteError(typeof data?.error === 'string' ? data.error : 'לא ניתן היה לשלוח את ההזמנה')
+        setIsInviting(false)
+        return
+      }
+
+      setInviteSuccess('ההזמנה נשלחה בהצלחה')
+      setInviteEmail('')
+      setIsInviting(false)
+    } catch {
+      setInviteError('לא ניתן היה לשלוח את ההזמנה. נסו שוב.')
+      setIsInviting(false)
+    }
+  }
+
+  const handleResetChildPin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const targetChildId = resetPinTargetId || childMembers[0]?.id || ''
+
+    if (!targetChildId) {
+      setResetPinError('אין ילדים זמינים לאיפוס PIN')
+      setResetPinSuccess('')
+      return
+    }
+
+    if (!/^\d{6}$/.test(resetPinNew)) {
+      setResetPinError('יש להזין PIN חדש בן 6 ספרות')
+      setResetPinSuccess('')
+      return
+    }
+
+    if (resetPinNew !== resetPinConfirm) {
+      setResetPinError('קודי ה-PIN אינם תואמים')
+      setResetPinSuccess('')
+      return
+    }
+
+    setIsResettingPin(true)
+    setResetPinError('')
+    setResetPinSuccess('')
+
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.functions.invoke('reset-child-pin', {
+        body: {
+          childUserId: targetChildId,
+          newPin: resetPinNew,
+        },
+      })
+
+      if (error || data?.error) {
+        setResetPinError(typeof data?.error === 'string' ? data.error : 'לא ניתן היה לאפס את ה-PIN')
+        setIsResettingPin(false)
+        return
+      }
+
+      setResetPinNew('')
+      setResetPinConfirm('')
+      setResetPinSuccess('ה-PIN עודכן בהצלחה')
+      setIsResettingPin(false)
+    } catch {
+      setResetPinError('לא ניתן היה לאפס את ה-PIN. נסו שוב.')
+      setIsResettingPin(false)
     }
   }
 
@@ -385,6 +488,123 @@ export function ParentDashboard({
       <div className="flex justify-end">
         <AddChildForm onChildCreated={onChildCreated} />
       </div>
+
+      <section className="panel-card p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-slate-900">הזמנה להורה נוסף</h3>
+          <span className="metric-pill bg-sky-100 text-sky-700">שיתוף משפחתי</span>
+        </div>
+
+        <form onSubmit={handleInviteSubmit} className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
+          <label className="flex flex-col gap-1 text-sm text-slate-600">
+            אימייל הורה
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="parent@example.com"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 outline-none transition focus:border-indigo-400 focus:bg-white"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={isInviting}
+            className="self-end rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isInviting ? 'שולח...' : 'שלח הזמנה'}
+          </button>
+        </form>
+
+        {inviteError && (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {inviteError}
+          </div>
+        )}
+
+        {inviteSuccess && (
+          <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {inviteSuccess}
+          </div>
+        )}
+      </section>
+
+      {childMembers.length > 0 && (
+        <section className="panel-card p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-bold text-slate-900">איפוס PIN</h3>
+            <span className="metric-pill bg-amber-100 text-amber-700">אבטחה</span>
+          </div>
+
+          <form onSubmit={handleResetChildPin} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              ילד
+              <select
+                value={resetPinTargetId || childMembers[0]?.id || ''}
+                onChange={(event) => setResetPinTargetId(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 outline-none transition focus:border-indigo-400 focus:bg-white"
+              >
+                {childMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              PIN חדש
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={resetPinNew}
+                onChange={(event) => setResetPinNew(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 outline-none transition focus:border-indigo-400 focus:bg-white"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              אישור PIN חדש
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={resetPinConfirm}
+                onChange={(event) => setResetPinConfirm(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 outline-none transition focus:border-indigo-400 focus:bg-white"
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={isResettingPin}
+              className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isResettingPin ? 'מעדכן...' : 'איפוס PIN'}
+            </button>
+          </form>
+
+          {resetPinError && (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {resetPinError}
+            </div>
+          )}
+
+          {resetPinSuccess && (
+            <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {resetPinSuccess}
+            </div>
+          )}
+        </section>
+      )}
+
+      {childMembers.length === 0 && (
+        <section className="panel-card p-5">
+          <h3 className="text-lg font-bold text-slate-900">אין עדיין ילדים במשפחה</h3>
+          <p className="mt-2 text-sm text-slate-600">הזמינו ילד/ה או הוסיפו לילד/ה חדש/ה כדי להתחיל את לוח המשימות.</p>
+        </section>
+      )}
 
       <section className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
@@ -790,182 +1010,220 @@ export function ParentDashboard({
       <div className="panel-card p-5">
         <h3 className="text-lg font-bold text-slate-900">משימות משפחתיות</h3>
         <div className="mt-4 space-y-3">
-          {tasks.map((task) => {
-            const assignee = members.find((member) => member.id === task.memberId)
-            const isEditing = editingTaskId === task.id
-            const dueLabel = formatDueDateTime(task.dueAt)
-            const priorityLabel = formatPriority(task.priority)
-            const recurrenceLabel = formatRecurrence(task.recurrence)
-            const completionLabel = formatCompletionStatus(task.completionStatus)
+          {activeTasks.length === 0 ? (
+            <p className="text-sm text-slate-500">אין כרגע משימות פעילות.</p>
+          ) : (
+            activeTasks.map((task) => {
+              const assignee = members.find((member) => member.id === task.memberId)
+              const isEditing = editingTaskId === task.id
+              const dueLabel = formatDueDateTime(task.dueAt)
+              const priorityLabel = formatPriority(task.priority)
+              const recurrenceLabel = formatRecurrence(task.recurrence)
+              const completionLabel = formatCompletionStatus(task.completionStatus)
 
-            return (
-              <div key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-base font-bold text-slate-800">
-                      {task.emoji} {task.title}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {assignee?.name ?? 'לא משויך'} · +{task.xp} XP
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                      <span className={`rounded-full px-2 py-0.5 font-semibold ${task.completionStatus === 'submitted' ? 'bg-amber-100 text-amber-700' : task.completionStatus === 'approved' ? 'bg-emerald-100 text-emerald-700' : task.completionStatus === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'}`}>
-                        {completionLabel}
-                      </span>
-                      {dueLabel && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">⏰ {dueLabel}</span>}
-                      <span className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-700">{priorityLabel}</span>
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{recurrenceLabel}</span>
-                      {task.requiresPhoto && (
-                        <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-fuchsia-700">נדרשת תמונה</span>
+              return (
+                <div key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-indigo-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-base font-bold text-slate-800">
+                        {task.emoji} {task.title}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {assignee?.name ?? 'לא משויך'} · +{task.xp} XP
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${task.completionStatus === 'submitted' ? 'bg-amber-100 text-amber-700' : task.completionStatus === 'approved' ? 'bg-emerald-100 text-emerald-700' : task.completionStatus === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'}`}>
+                          {completionLabel}
+                        </span>
+                        {dueLabel && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">⏰ {dueLabel}</span>}
+                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-700">{priorityLabel}</span>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{recurrenceLabel}</span>
+                        {task.requiresPhoto && (
+                          <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-fuchsia-700">נדרשת תמונה</span>
+                        )}
+                      </div>
+                      {task.completionNote && (
+                        <p className="mt-2 text-xs text-slate-600">משוב: {task.completionNote}</p>
+                      )}
+                      {task.completionStatus === 'submitted' && task.proofPhotoUrl && (
+                        <img
+                          src={task.proofPhotoUrl}
+                          alt="Temporary proof"
+                          className="mt-3 h-36 w-full rounded-xl object-cover"
+                        />
                       )}
                     </div>
-                    {task.completionNote && (
-                      <p className="mt-2 text-xs text-slate-600">משוב: {task.completionNote}</p>
-                    )}
-                    {task.completionStatus === 'submitted' && task.proofPhotoUrl && (
-                      <img
-                        src={task.proofPhotoUrl}
-                        alt="Temporary proof"
-                        className="mt-3 h-36 w-full rounded-xl object-cover"
-                      />
-                    )}
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                      task.status === 'approved'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : task.status === 'rejected'
+                          ? 'bg-rose-100 text-rose-700'
+                          : task.status === 'completed'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : task.status === 'overdue'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {getTaskStatusLabel(task.status)}
+                    </span>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    task.status === 'approved'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : task.status === 'rejected'
-                        ? 'bg-rose-100 text-rose-700'
-                        : task.status === 'completed'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : task.status === 'overdue'
-                            ? 'bg-rose-100 text-rose-700'
-                            : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {getTaskStatusLabel(task.status)}
-                  </span>
+
+                  {isEditing && (
+                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+                      <input
+                        value={editTitle}
+                        onChange={(event) => setEditTitle(event.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                      />
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <input
+                          value={editEmoji}
+                          maxLength={2}
+                          onChange={(event) => setEditEmoji(event.target.value)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        />
+                        <input
+                          type="number"
+                          min={5}
+                          step={5}
+                          value={editXp}
+                          onChange={(event) => setEditXp(Number(event.target.value || 0))}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        />
+                        <select
+                          value={editAssignedTo || childMembers[0]?.id || ''}
+                          onChange={(event) => setEditAssignedTo(event.target.value)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        >
+                          {members
+                            .filter((member) => member.role === 'child')
+                            .map((member) => (
+                              <option key={member.id} value={member.id}>
+                                {member.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <input
+                          type="date"
+                          value={editDueDate}
+                          onChange={(event) => setEditDueDate(event.target.value)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={editDueTime}
+                          onChange={(event) => setEditDueTime(event.target.value)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <select
+                          value={editPriority}
+                          onChange={(event) => setEditPriority(event.target.value as TaskPriority)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        >
+                          <option value="low">נמוכה</option>
+                          <option value="medium">בינונית</option>
+                          <option value="high">גבוהה</option>
+                        </select>
+                        <select
+                          value={editRecurrence}
+                          onChange={(event) => setEditRecurrence(event.target.value as TaskRecurrence)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+                        >
+                          <option value="none">ללא</option>
+                          <option value="daily">יומית</option>
+                          <option value="weekly">שבועית</option>
+                          <option value="monthly">חודשית</option>
+                        </select>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={editRequiresPhoto}
+                          onChange={(event) => setEditRequiresPhoto(event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        נדרשת תמונה
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={saveEdit}
+                          className="rounded-full bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white"
+                        >
+                          שמור
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingTaskId(null)}
+                          className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                        >
+                          ביטול
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isEditing && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditing(task)}
+                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                      >
+                        ערוך
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTask(task.id)}
+                        className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-200"
+                      >
+                        מחק
+                      </button>
+                    </div>
+                  )}
                 </div>
-
-                {isEditing && (
-                  <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-white p-2">
-                    <input
-                      value={editTitle}
-                      onChange={(event) => setEditTitle(event.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                    />
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <input
-                        value={editEmoji}
-                        maxLength={2}
-                        onChange={(event) => setEditEmoji(event.target.value)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      />
-                      <input
-                        type="number"
-                        min={5}
-                        step={5}
-                        value={editXp}
-                        onChange={(event) => setEditXp(Number(event.target.value || 0))}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      />
-                      <select
-                        value={editAssignedTo || childMembers[0]?.id || ''}
-                        onChange={(event) => setEditAssignedTo(event.target.value)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      >
-                        {members
-                          .filter((member) => member.role === 'child')
-                          .map((member) => (
-                            <option key={member.id} value={member.id}>
-                              {member.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      <input
-                        type="date"
-                        value={editDueDate}
-                        onChange={(event) => setEditDueDate(event.target.value)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      />
-                      <input
-                        type="time"
-                        value={editDueTime}
-                        onChange={(event) => setEditDueTime(event.target.value)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      />
-                    </div>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      <select
-                        value={editPriority}
-                        onChange={(event) => setEditPriority(event.target.value as TaskPriority)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      >
-                        <option value="low">נמוכה</option>
-                        <option value="medium">בינונית</option>
-                        <option value="high">גבוהה</option>
-                      </select>
-                      <select
-                        value={editRecurrence}
-                        onChange={(event) => setEditRecurrence(event.target.value as TaskRecurrence)}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      >
-                        <option value="none">ללא</option>
-                        <option value="daily">יומית</option>
-                        <option value="weekly">שבועית</option>
-                        <option value="monthly">חודשית</option>
-                      </select>
-                    </div>
-                    <label className="flex items-center gap-2 text-xs text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={editRequiresPhoto}
-                        onChange={(event) => setEditRequiresPhoto(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      נדרשת תמונה
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={saveEdit}
-                        className="rounded-full bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white"
-                      >
-                        שמור
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingTaskId(null)}
-                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
-                      >
-                        ביטול
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {!isEditing && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => startEditing(task)}
-                      className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                    >
-                      ערוך
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTask(task.id)}
-                      className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-200"
-                    >
-                      מחק
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
+
+        {approvedTaskHistory.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <button
+              type="button"
+              onClick={() => setShowApprovedTaskHistory((current) => !current)}
+              className="flex w-full items-center justify-between text-right text-sm font-semibold text-slate-700"
+            >
+              <span>היסטוריית משימות ({approvedTaskHistory.length})</span>
+              <span>{showApprovedTaskHistory ? '▲' : '▼'}</span>
+            </button>
+
+            {showApprovedTaskHistory && (
+              <div className="mt-3 space-y-2">
+                {approvedTaskHistory.map((task) => {
+                  const assignee = members.find((member) => member.id === task.memberId)
+                  return (
+                    <div key={task.id} className="rounded-xl border border-emerald-200 bg-white p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{task.emoji} {task.title}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">{assignee?.name ?? 'לא משויך'} · +{task.xp} XP</p>
+                        </div>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                          {getTaskStatusLabel(task.status)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </section>
   )

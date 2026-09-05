@@ -27,3 +27,12 @@ verify_jwt = true
 [functions.child-login]
 verify_jwt = false
 
+[functions.family-invite]
+verify_jwt = true
+
+[functions.accept-family-invite]
+verify_jwt = true
+
+[functions.reset-child-pin]
+verify_jwt = true
+
