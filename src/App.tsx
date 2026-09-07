@@ -8,6 +8,7 @@ import { useFamilyTasks } from './hooks/useFamilyTasks'
 import { getSupabaseClient, supabaseConfig } from './services/supabase'
 import { appName, appTagline } from './utils/constants'
 import { trackEvent } from './lib/analytics'
+import { AnalyticsDashboard } from './pages/AnalyticsDashboard'
 
 const PIN_PATTERN = /^\d{6}$/
 
@@ -31,8 +32,13 @@ function App() {
   const [pendingInviteToken, setPendingInviteToken] = useState(
     () => new URLSearchParams(window.location.search).get('invite')?.trim() ?? '',
   )
+  const [wantsAnalyticsDashboard] = useState(
+    () => new URLSearchParams(window.location.search).get('analytics') === '1',
+  )
   const [authView, setAuthView] = useState<'landing' | 'login' | 'signup' | 'pending-confirmation' | 'child-login'>(() =>
-    new URLSearchParams(window.location.search).get('invite') ? 'login' : 'landing',
+    new URLSearchParams(window.location.search).get('invite') || new URLSearchParams(window.location.search).get('analytics') === '1'
+      ? 'login'
+      : 'landing',
   )
   const [childLoginFamilyCode, setChildLoginFamilyCode] = useState('')
   const [childLoginUsername, setChildLoginUsername] = useState('')
@@ -488,6 +494,10 @@ function App() {
         </div>
       </div>
     )
+  }
+
+  if (isAuthenticated && wantsAnalyticsDashboard) {
+    return <AnalyticsDashboard />
   }
 
   if (!isAuthenticated || resolvedDashboardRole === null) {
