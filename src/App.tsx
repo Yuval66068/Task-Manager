@@ -7,12 +7,14 @@ import { PushNotificationControl } from './components/PushNotificationControl'
 import { useFamilyTasks } from './hooks/useFamilyTasks'
 import { getSupabaseClient, supabaseConfig } from './services/supabase'
 import { appName, appTagline } from './utils/constants'
+import { trackEvent } from './lib/analytics'
 
 const PIN_PATTERN = /^\d{6}$/
 
 function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const appOpenTrackedRef = useRef(false)
   const [authError, setAuthError] = useState('')
   const [email, setEmail] = useState(import.meta.env.VITE_TEST_PARENT_A_EMAIL ?? '')
   const [password, setPassword] = useState('')
@@ -269,6 +271,7 @@ function App() {
     }
 
     const resolvedRole = await resolveAuthenticatedMembershipRole()
+    void trackEvent('login')
     setIsSubmitting(false)
     setIsResolvingRole(false)
     setResolvedDashboardRole(resolvedRole)
@@ -343,6 +346,7 @@ function App() {
       // advance past the generic loading view without waiting for a stale
       // browser refresh.
       await finalizeAuthenticatedSession()
+      void trackEvent('login')
       setIsChildLoginSubmitting(false)
     } catch {
       setChildLoginPin('')
@@ -448,6 +452,7 @@ function App() {
     }
 
     setIsAuthenticated(false)
+    appOpenTrackedRef.current = false
     setIsResolvingRole(false)
     setResolvedDashboardRole(null)
     setAuthenticatedUserId(null)
@@ -462,6 +467,15 @@ function App() {
     setSignupPassword('')
     setSignupConfirmPassword('')
   }
+
+  useEffect(() => {
+    if (!isAuthenticated || resolvedDashboardRole === null || appOpenTrackedRef.current) {
+      return
+    }
+
+    appOpenTrackedRef.current = true
+    void trackEvent('app_open')
+  }, [isAuthenticated, resolvedDashboardRole])
 
   const shouldShowRoleLoading =
     isCheckingSession || (!isAuthenticated && !authReady) || isResolvingRole || (isAuthenticated && !authReady)
@@ -853,41 +867,20 @@ function App() {
     )
   }
 
-  if (!isParentDashboard && !child) {
-    console.error(
-      '[App] Authenticated user resolved as role=child via family_members, but no matching FamilyMember record was found for userId=',
-      authenticatedUserId,
-    )
 
+  if (resolvedDashboardRole === 'child' && !child) {
     return (
-      <div dir="rtl" className="auth-shell min-h-screen px-4 py-6 sm:px-6">
-        <div className="mx-auto max-w-lg">
-          <div className="auth-card auth-card--parent">
-            <div className="auth-card__brand">
-              <img src={familyTasksLogo} alt="Family Tasks logo" className="auth-brand-logo" />
-              <p className="brand-label">Family Tasks</p>
-            </div>
-
-            <div className="auth-card__header">
-              <h2>לא ניתן לטעון את פרופיל הילד/ה</h2>
-            </div>
-
-            <div className="auth-alert auth-alert--warning">
-              אירעה שגיאה בטעינת נתוני המשתמש. נסו להתחבר מחדש או פנו לתמיכה.
-            </div>
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="auth-submit auth-submit--parent"
-            >
-              התנתקות
-            </button>
-          </div>
+      <div
+        dir="rtl"
+        className="app-shell flex min-h-screen items-center justify-center px-4 py-10 text-slate-700"
+      >
+        <div className="panel-card px-6 py-5 text-sm font-medium">
+          טוען את פרופיל הילד...
         </div>
       </div>
     )
   }
+
 
   return (
     <div dir="rtl" className="app-shell min-h-screen text-slate-800">

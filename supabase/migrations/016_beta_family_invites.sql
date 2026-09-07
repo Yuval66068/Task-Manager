@@ -1,4 +1,4 @@
-=create type public.family_invite_status as enum ('pending', 'accepted', 'expired');
+create type public.family_invite_status as enum ('pending', 'accepted', 'expired');
 
 create table public.family_invites (
   id uuid primary key default gen_random_uuid(),
