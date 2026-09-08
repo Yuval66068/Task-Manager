@@ -51,7 +51,7 @@ type AdminAnalyticsState = {
 }
 
 const REFRESH_INTERVAL_MS = 30_000
-const REALTIME_DEBOUNCE_MS = 1_500
+const REALTIME_DEBOUNCE_MS = 500
 
 function mapSummaryRow(row: Record<string, unknown>): AdminAnalyticsSummary {
   const numberOf = (value: unknown) => Number(value ?? 0)

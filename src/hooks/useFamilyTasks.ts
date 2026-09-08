@@ -519,6 +519,7 @@ export function useFamilyTasks() {
   const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<'parent' | 'child' | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'offline' | 'error'>('connecting')
 
   useEffect(() => {
     let isMounted = true
@@ -681,7 +682,12 @@ export function useFamilyTasks() {
     })
   }, [tasks, rewardRedemptions, activeFamilyId])
 
-  const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks whether an authoritative refetch is currently in flight, and
+  // whether another one was requested while it was running, so bursts of
+  // Realtime events collapse into: one immediate refresh + at most one
+  // trailing refresh, never a request storm.
+  const isRefetchInFlightRef = useRef(false)
+  const isTrailingRefetchNeededRef = useRef(false)
 
   useEffect(() => {
     if (!supabaseConfig.isConfigured || !activeFamilyId) {
@@ -690,6 +696,11 @@ export function useFamilyTasks() {
 
     const supabase = getSupabaseClient()
     let isEffectActive = true
+    queueMicrotask(() => {
+      if (isEffectActive) {
+        setRealtimeStatus('connecting')
+      }
+    })
 
     const refetchFamilyData = async () => {
       const {
@@ -715,15 +726,30 @@ export function useFamilyTasks() {
       setNotifications(resolved.notifications)
     }
 
+    // Coalesced, immediate refresh: the first relevant event triggers a
+    // refetch right away (no arbitrary delay). If more events arrive while
+    // that refetch is in flight, remember it and perform exactly one
+    // trailing refresh afterward instead of queuing/duplicating requests.
     const scheduleRefetch = () => {
-      if (realtimeDebounceRef.current) {
-        clearTimeout(realtimeDebounceRef.current)
+      if (isRefetchInFlightRef.current) {
+        isTrailingRefetchNeededRef.current = true
+        return
       }
 
-      realtimeDebounceRef.current = setTimeout(() => {
-        realtimeDebounceRef.current = null
-        void refetchFamilyData()
-      }, 400)
+      isRefetchInFlightRef.current = true
+
+      void (async () => {
+        try {
+          await refetchFamilyData()
+        } finally {
+          isRefetchInFlightRef.current = false
+
+          if (isTrailingRefetchNeededRef.current && isEffectActive) {
+            isTrailingRefetchNeededRef.current = false
+            scheduleRefetch()
+          }
+        }
+      })()
     }
 
     const channel = supabase
@@ -780,19 +806,63 @@ export function useFamilyTasks() {
         scheduleRefetch,
       )
       .subscribe((status, error) => {
+        if (!isEffectActive) {
+          return
+        }
+
         if (error) {
           console.error('Supabase Realtime subscription error:', error)
+          setRealtimeStatus('error')
+          return
+        }
+
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('live')
+          // Reconnect/re-subscribe (including the very first subscribe)
+          // always triggers one authoritative refresh so nothing missed
+          // while (re)connecting is lost.
+          scheduleRefetch()
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.error('Supabase Realtime channel status:', status)
+          setRealtimeStatus('error')
+        } else if (status === 'CLOSED') {
+          setRealtimeStatus('offline')
         }
       })
 
+    // Fallback recovery: if the browser regains connectivity or the tab
+    // becomes visible again, perform an authoritative refresh in case any
+    // Realtime events were missed while offline/hidden.
+    const handleOnline = () => {
+      scheduleRefetch()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleRefetch()
+      }
+    }
+
+    window.addEventListener('online', handleOnline)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    // Safety-net polling only: Realtime is the primary mechanism, this just
+    // guards against a missed/silent disconnect. Never polls while the tab
+    // is hidden.
+    const fallbackIntervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        scheduleRefetch()
+      }
+    }, 30_000)
+
     return () => {
       isEffectActive = false
-      if (realtimeDebounceRef.current) {
-        clearTimeout(realtimeDebounceRef.current)
-        realtimeDebounceRef.current = null
-      }
+      window.removeEventListener('online', handleOnline)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.clearInterval(fallbackIntervalId)
+      isRefetchInFlightRef.current = false
+      isTrailingRefetchNeededRef.current = false
+      setRealtimeStatus('connecting')
       void supabase.removeChannel(channel)
     }
   }, [activeFamilyId])
@@ -1926,6 +1996,7 @@ export function useFamilyTasks() {
     currentUserRole,
     currentUserName,
     authReady,
+    realtimeStatus,
     addTask,
     editTask,
     deleteTask,

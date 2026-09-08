@@ -71,6 +71,7 @@ function App() {
     currentUserName,
     authReady,
     refreshFamilyData,
+    realtimeStatus,
   } = useFamilyTasks()
   const child = members.find((member) => member.id === authenticatedUserId && member.role === 'child')
   const isParentDashboard = resolvedDashboardRole === 'parent' || currentUserRole === 'parent'
@@ -905,6 +906,22 @@ function App() {
             <div className="rounded-full bg-gradient-to-r from-indigo-50 to-amber-50 px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-indigo-100">
               {appTagline} · {familyName}
             </div>
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                realtimeStatus === 'live'
+                  ? 'bg-emerald-50 text-emerald-600'
+                  : realtimeStatus === 'connecting'
+                    ? 'bg-slate-100 text-slate-500'
+                    : 'bg-amber-50 text-amber-600'
+              }`}
+              title="חיבור בזמן אמת"
+            >
+              {realtimeStatus === 'live'
+                ? '● חי'
+                : realtimeStatus === 'connecting'
+                  ? 'מתחבר...'
+                  : 'לא מחובר'}
+            </span>
             <PushNotificationControl />
             <button
               type="button"
