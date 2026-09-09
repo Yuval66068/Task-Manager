@@ -46,6 +46,9 @@ function App() {
   const [childLoginError, setChildLoginError] = useState('')
   const [isChildLoginSubmitting, setIsChildLoginSubmitting] = useState(false)
   const onboardingInFlightRef = useRef(false)
+  const [isResendingVerification, setIsResendingVerification] = useState(false)
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0)
+  const resendCooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const {
     familyName,
@@ -165,6 +168,7 @@ function App() {
       .eq('user_id', user.id)
 
     if (membershipsError) {
+      console.error('Failed to check existing family membership before onboarding:', membershipsError)
       return
     }
 
@@ -187,13 +191,54 @@ function App() {
         p_family_name: familyNameValue,
       })
 
-      if (error && !String(error.message).toLowerCase().includes('already belongs to a family')) {
-        setAuthError(error.message)
+      if (error) {
+        // Idempotent onboarding already treats an existing parent membership
+        // as success at the database level, but the RPC may still surface
+        // this specific message for a child-role account; keep it silent
+        // for the user in that one known case while still logging it.
+        if (String(error.message).toLowerCase().includes('already belongs to a family')) {
+          console.error('onboard_parent_family: user already belongs to a family', error)
+        } else {
+          console.error('onboard_parent_family failed:', error)
+          setAuthError('לא ניתן היה להשלים את הרשמת המשפחה. נסו שוב או פנו לתמיכה.')
+        }
       }
     } finally {
       onboardingInFlightRef.current = false
     }
   }, [])
+
+  // Runs all async Supabase work for a newly authenticated session. This is
+  // intentionally called AFTER onAuthStateChange's own callback has already
+  // returned (see the setTimeout(..., 0) below), because Supabase documents
+  // that awaited Supabase calls made directly inside onAuthStateChange can
+  // deadlock/hang the client.
+  const handleAuthenticatedSessionAfterAuthEvent = useCallback(
+    async (inviteToken: string) => {
+      if (inviteToken) {
+        // Invite flow: accept the invite BEFORE any onboarding/new-family
+        // creation so an invited second parent never ends up with a second,
+        // separate family.
+        const inviteAccepted = await acceptPendingInvite(inviteToken)
+        if (inviteAccepted) {
+          setIsCheckingSession(false)
+          return
+        }
+      }
+
+      // New-parent flow: onboarding must run before role resolution so a
+      // brand-new parent (confirmed email, no family_members row yet) gets
+      // their family created first instead of being resolved to "no role".
+      await completeParentOnboardingIfNeeded()
+      const nextRole = await resolveAuthenticatedMembershipRole()
+      setResolvedDashboardRole(nextRole)
+      if (nextRole === 'parent' || nextRole === 'child') {
+        void trackEvent('login')
+      }
+      setIsCheckingSession(false)
+    },
+    [acceptPendingInvite, completeParentOnboardingIfNeeded, resolveAuthenticatedMembershipRole],
+  )
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -211,13 +256,7 @@ function App() {
         return
       }
 
-      const nextRole = await resolveAuthenticatedMembershipRole()
-      setResolvedDashboardRole(nextRole)
-      if (pendingInviteToken) {
-        await acceptPendingInvite(pendingInviteToken)
-      }
-      await completeParentOnboardingIfNeeded()
-      setIsCheckingSession(false)
+      await handleAuthenticatedSessionAfterAuthEvent(pendingInviteToken)
     }
 
     void syncSessionStatus()
@@ -225,6 +264,10 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      // IMPORTANT: this callback body must stay synchronous. Only plain
+      // React state updates happen here -- no awaited Supabase calls
+      // (getUser/from/rpc/functions.invoke) may run directly inside it, per
+      // Supabase's own guidance that doing so can deadlock the client.
       setIsAuthenticated(Boolean(session))
       if (!session) {
         setResolvedDashboardRole(null)
@@ -234,21 +277,19 @@ function App() {
         return
       }
 
-      void (async () => {
-        const nextRole = await resolveAuthenticatedMembershipRole()
-        setResolvedDashboardRole(nextRole)
-        if (pendingInviteToken) {
-          await acceptPendingInvite(pendingInviteToken)
-        }
-        await completeParentOnboardingIfNeeded()
-        setIsCheckingSession(false)
-      })()
+      // Defer all async Supabase work until after this callback has
+      // returned. setTimeout(..., 0) (rather than an immediately-invoked
+      // async function) guarantees the deferred work only starts on a new
+      // task, once onAuthStateChange has fully finished executing.
+      setTimeout(() => {
+        void handleAuthenticatedSessionAfterAuthEvent(pendingInviteToken)
+      }, 0)
     })
 
     return () => {
       subscription.unsubscribe()
     }
-  }, [acceptPendingInvite, completeParentOnboardingIfNeeded, pendingInviteToken, resolveAuthenticatedMembershipRole])
+  }, [handleAuthenticatedSessionAfterAuthEvent, pendingInviteToken])
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -277,22 +318,33 @@ function App() {
       return
     }
 
-    const resolvedRole = await resolveAuthenticatedMembershipRole()
-    void trackEvent('login')
-    setIsSubmitting(false)
-    setIsResolvingRole(false)
-    setResolvedDashboardRole(resolvedRole)
-
     if (pendingInviteToken) {
+      // Invite flow takes precedence: accept the invite before any
+      // onboarding/new-family creation so an invited second parent never
+      // ends up with a separate family.
       const inviteAccepted = await acceptPendingInvite(pendingInviteToken)
+      setIsSubmitting(false)
+      setIsResolvingRole(false)
       if (inviteAccepted) {
         setIsAuthenticated(true)
+        void trackEvent('login')
         return
       }
     }
 
+    // Manual login recovery: run onboarding (idempotent/no-op for users who
+    // already have a membership) before resolving the role, so an
+    // affected auth-only user (confirmed email, but no profile/family ever
+    // created) can repair themselves simply by logging in again.
+    await completeParentOnboardingIfNeeded()
+    const resolvedRole = await resolveAuthenticatedMembershipRole()
+    setIsSubmitting(false)
+    setIsResolvingRole(false)
+    setResolvedDashboardRole(resolvedRole)
+
     if (resolvedRole === 'parent' || resolvedRole === 'child') {
       setIsAuthenticated(true)
+      void trackEvent('login')
       return
     }
 
@@ -430,10 +482,42 @@ function App() {
     setIsSubmitting(false)
   }
 
+  const startResendCooldown = (seconds: number) => {
+    if (resendCooldownIntervalRef.current) {
+      clearInterval(resendCooldownIntervalRef.current)
+    }
+
+    setResendCooldownSeconds(seconds)
+    resendCooldownIntervalRef.current = setInterval(() => {
+      setResendCooldownSeconds((current) => {
+        if (current <= 1) {
+          if (resendCooldownIntervalRef.current) {
+            clearInterval(resendCooldownIntervalRef.current)
+            resendCooldownIntervalRef.current = null
+          }
+          return 0
+        }
+        return current - 1
+      })
+    }, 1000)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (resendCooldownIntervalRef.current) {
+        clearInterval(resendCooldownIntervalRef.current)
+        resendCooldownIntervalRef.current = null
+      }
+    }
+  }, [])
+
   const handleResendVerification = async () => {
-    if (!pendingConfirmationEmail) {
+    if (!pendingConfirmationEmail || isResendingVerification || resendCooldownSeconds > 0) {
       return
     }
+
+    setIsResendingVerification(true)
+    setAuthError('')
 
     const supabase = getSupabaseClient()
     const { error } = await supabase.auth.resend({
@@ -441,12 +525,24 @@ function App() {
       email: pendingConfirmationEmail,
     })
 
+    setIsResendingVerification(false)
+
     if (error) {
-      setAuthError(error.message)
+      const isRateLimited =
+        (typeof error.status === 'number' && error.status === 429) ||
+        String(error.message).toLowerCase().includes('rate limit')
+
+      if (isRateLimited) {
+        setAuthError('נשלחו יותר מדי בקשות. נסו שוב בעוד דקה.')
+        startResendCooldown(60)
+      } else {
+        setAuthError(error.message)
+      }
       return
     }
 
     setAuthError('הודעת האימות נשלחה שוב. בדקו את תיבת הדואר הנכנס.')
+    startResendCooldown(60)
   }
 
   const handleLogout = async () => {
@@ -796,8 +892,17 @@ function App() {
 
               {authError && <div className="auth-alert auth-alert--error">{authError}</div>}
 
-              <button type="button" onClick={handleResendVerification} className="auth-submit auth-submit--parent">
-                שלח קישור שוב
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={isResendingVerification || resendCooldownSeconds > 0}
+                className="auth-submit auth-submit--parent"
+              >
+                {isResendingVerification
+                  ? 'שולח...'
+                  : resendCooldownSeconds > 0
+                    ? `ניתן לשלוח שוב בעוד ${resendCooldownSeconds} שניות`
+                    : 'שלח קישור שוב'}
               </button>
             </div>
           </div>
