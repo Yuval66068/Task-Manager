@@ -41,12 +41,32 @@ export type AdminFamilyActivity = {
   lastActivityAt: string | null
 }
 
+export type AdminSignupFunnelStage = {
+  stage: string
+  count: number
+  percentageOfSignups: number
+  percentageFromPreviousStage: number | null
+}
+
+export type AdminRecentSignup = {
+  signedUpAt: string
+  email: string
+  emailConfirmed: boolean
+  signedIn: boolean
+  profileCreated: boolean
+  familyJoined: boolean
+  childAdded: boolean
+  taskCreated: boolean
+}
+
 type AdminAnalyticsState = {
   isLoading: boolean
   isAuthorized: boolean | null
   error: string
   summary: AdminAnalyticsSummary | null
   families: AdminFamilyActivity[]
+  signupFunnel: AdminSignupFunnelStage[]
+  recentSignups: AdminRecentSignup[]
   lastUpdatedAt: Date | null
 }
 
@@ -99,6 +119,31 @@ function mapFamilyRow(row: Record<string, unknown>): AdminFamilyActivity {
   }
 }
 
+function mapSignupFunnelRow(row: Record<string, unknown>): AdminSignupFunnelStage {
+  return {
+    stage: String(row.stage ?? ''),
+    count: Number(row.count ?? 0),
+    percentageOfSignups: Number(row.percentage_of_signups ?? 0),
+    percentageFromPreviousStage:
+      row.percentage_from_previous_stage === null || row.percentage_from_previous_stage === undefined
+        ? null
+        : Number(row.percentage_from_previous_stage),
+  }
+}
+
+function mapRecentSignupRow(row: Record<string, unknown>): AdminRecentSignup {
+  return {
+    signedUpAt: String(row.signed_up_at ?? ''),
+    email: String(row.email ?? ''),
+    emailConfirmed: Boolean(row.email_confirmed),
+    signedIn: Boolean(row.signed_in),
+    profileCreated: Boolean(row.profile_created),
+    familyJoined: Boolean(row.family_joined),
+    childAdded: Boolean(row.child_added),
+    taskCreated: Boolean(row.task_created),
+  }
+}
+
 export function useAdminAnalytics() {
   const [state, setState] = useState<AdminAnalyticsState>({
     isLoading: true,
@@ -106,6 +151,8 @@ export function useAdminAnalytics() {
     error: '',
     summary: null,
     families: [],
+    signupFunnel: [],
+    recentSignups: [],
     lastUpdatedAt: null,
   })
   const debounceRef = useRef<number | null>(null)
@@ -118,12 +165,14 @@ export function useAdminAnalytics() {
 
     const supabase = getSupabaseClient()
 
-    const [summaryResult, familiesResult] = await Promise.all([
+    const [summaryResult, familiesResult, signupFunnelResult, recentSignupsResult] = await Promise.all([
       supabase.rpc('get_admin_analytics_summary'),
       supabase.rpc('get_admin_family_activity'),
+      supabase.rpc('get_admin_signup_funnel'),
+      supabase.rpc('get_admin_recent_signups'),
     ])
 
-    if (summaryResult.error || familiesResult.error) {
+    if (summaryResult.error || familiesResult.error || signupFunnelResult.error || recentSignupsResult.error) {
       // Both RPCs raise 'not authorized' for non-admins; treat any error as
       // unauthorized rather than leaking details about the failure reason.
       setState((current) => ({
@@ -133,6 +182,8 @@ export function useAdminAnalytics() {
         error: '',
         summary: null,
         families: [],
+        signupFunnel: [],
+        recentSignups: [],
       }))
       return
     }
@@ -142,6 +193,12 @@ export function useAdminAnalytics() {
     const families = Array.isArray(familiesResult.data)
       ? familiesResult.data.map((row) => mapFamilyRow(row as Record<string, unknown>))
       : []
+    const signupFunnel = Array.isArray(signupFunnelResult.data)
+      ? signupFunnelResult.data.map((row) => mapSignupFunnelRow(row as Record<string, unknown>))
+      : []
+    const recentSignups = Array.isArray(recentSignupsResult.data)
+      ? recentSignupsResult.data.map((row) => mapRecentSignupRow(row as Record<string, unknown>))
+      : []
 
     setState({
       isLoading: false,
@@ -149,6 +206,8 @@ export function useAdminAnalytics() {
       error: '',
       summary,
       families,
+      signupFunnel,
+      recentSignups,
       lastUpdatedAt: new Date(),
     })
   }, [])

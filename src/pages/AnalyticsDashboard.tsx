@@ -94,8 +94,31 @@ function FamilyRow({ family }: { family: AdminFamilyActivity }) {
   )
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  auth_signup: 'נרשמו',
+  email_confirmed: 'אימתו אימייל',
+  signed_in: 'התחברו',
+  profile_created: 'נוצר פרופיל',
+  family_joined: 'הצטרפו למשפחה',
+  child_added: 'הוסיפו ילד',
+  first_task_created: 'יצרו משימה ראשונה',
+}
+
+function BooleanBadge({ value }: { value: boolean }) {
+  return (
+    <span
+      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        value ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'
+      }`}
+    >
+      {value ? '✓' : '—'}
+    </span>
+  )
+}
+
 export function AnalyticsDashboard() {
-  const { isLoading, isAuthorized, summary, families, lastUpdatedAt, refresh } = useAdminAnalytics()
+  const { isLoading, isAuthorized, summary, families, signupFunnel, recentSignups, lastUpdatedAt, refresh } =
+    useAdminAnalytics()
 
   if (isLoading) {
     return (
@@ -197,6 +220,84 @@ export function AnalyticsDashboard() {
             </section>
           </div>
         )}
+
+        <section className="panel-card mt-6 p-5">
+          <h2 className="text-sm font-bold text-slate-900">הרשמה והשלמת הקמה</h2>
+
+          {signupFunnel.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">אין עדיין נתוני הרשמה.</p>
+          ) : (
+            <>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {signupFunnel.map((stageRow) => (
+                  <div key={stageRow.stage} className="rounded-2xl bg-slate-50 p-3 text-center ring-1 ring-slate-200">
+                    <p className="text-xs font-semibold text-slate-600">
+                      {STAGE_LABELS[stageRow.stage] ?? stageRow.stage}
+                    </p>
+                    <p className="mt-1 text-xl font-black text-slate-900">{stageRow.count}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{stageRow.percentageOfSignups}% מסך הנרשמים</p>
+                    {stageRow.percentageFromPreviousStage !== null && (
+                      <p className="text-[11px] text-slate-400">
+                        {stageRow.percentageFromPreviousStage}% מהשלב הקודם
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[560px] text-right text-xs">
+                  <thead>
+                    <tr className="text-slate-500">
+                      <th className="p-2 font-semibold">נרשם בתאריך</th>
+                      <th className="p-2 font-semibold">אימייל</th>
+                      <th className="p-2 font-semibold">אימות</th>
+                      <th className="p-2 font-semibold">התחברות</th>
+                      <th className="p-2 font-semibold">פרופיל</th>
+                      <th className="p-2 font-semibold">משפחה</th>
+                      <th className="p-2 font-semibold">ילד</th>
+                      <th className="p-2 font-semibold">משימה</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentSignups.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-2 text-center text-slate-500">
+                          אין עדיין נרשמים.
+                        </td>
+                      </tr>
+                    ) : (
+                      recentSignups.map((signup) => (
+                        <tr key={`${signup.email}-${signup.signedUpAt}`} className="border-t border-slate-100">
+                          <td className="p-2 text-slate-700">{formatDateTime(signup.signedUpAt)}</td>
+                          <td className="p-2 text-slate-700">{signup.email}</td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.emailConfirmed} />
+                          </td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.signedIn} />
+                          </td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.profileCreated} />
+                          </td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.familyJoined} />
+                          </td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.childAdded} />
+                          </td>
+                          <td className="p-2">
+                            <BooleanBadge value={signup.taskCreated} />
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
 
         <section className="panel-card mt-6 p-5">
           <h2 className="text-sm font-bold text-slate-900">פעילות משפחות</h2>
