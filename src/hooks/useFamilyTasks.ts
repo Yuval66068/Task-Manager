@@ -31,6 +31,7 @@ type TaskRowRecord = {
   due_at: string | null
   priority: string | null
   recurrence: string | null
+  recurrence_days?: number[] | null
   requires_photo?: boolean | null
   recurrence_anchor_day?: number | null
   recurrence_source_task_id?: string | null
@@ -78,10 +79,21 @@ const getMonthlyAnchorDay = (
   return Math.min(clampedDay, monthLength)
 }
 
+const normalizeSelectedWeekdays = (days?: number[] | null): number[] => {
+  if (!Array.isArray(days)) {
+    return []
+  }
+
+  const uniqueDays = Array.from(new Set(days.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)))
+  uniqueDays.sort((left, right) => left - right)
+  return uniqueDays
+}
+
 const getNextRecurrenceDate = (
   sourceDueAt: string | null | undefined,
   recurrence: TaskRecurrence,
   anchorDay?: number | null,
+  selectedWeekdays?: number[] | null,
 ): string | null => {
   if (!sourceDueAt || recurrence === 'none') {
     return null
@@ -90,6 +102,26 @@ const getNextRecurrenceDate = (
   const baseDate = new Date(sourceDueAt)
   if (Number.isNaN(baseDate.getTime())) {
     return null
+  }
+
+  const normalizedWeekdays = normalizeSelectedWeekdays(selectedWeekdays)
+  if (recurrence === 'weekly' && normalizedWeekdays.length > 0) {
+    const currentDay = baseDate.getDay()
+    const positiveOffset = normalizedWeekdays
+      .map((day) => {
+        const diff = (day - currentDay + 7) % 7
+        return diff === 0 ? 7 : diff
+      })
+      .filter((offset) => offset > 0)
+      .sort((left, right) => left - right)[0]
+
+    if (positiveOffset === undefined) {
+      return null
+    }
+
+    const nextDate = new Date(baseDate)
+    nextDate.setDate(baseDate.getDate() + positiveOffset)
+    return nextDate.toISOString()
   }
 
   const nextDate = new Date(baseDate)
@@ -295,7 +327,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
 
   const { data: familyRow, error: familyError } = await supabase
     .from('families')
-    .select('id, name, family_code')
+    .select('id, name, family_code, onboarding_completed_at')
     .eq('id', familyId)
     .maybeSingle()
 
@@ -342,7 +374,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
 
   const firstTaskRows = await supabase
     .from('tasks')
-    .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, requires_photo')
+    .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, recurrence_days, requires_photo')
     .eq('family_id', familyId)
 
   let taskRows: TaskRowRecord[] | null
@@ -354,7 +386,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
   ) {
     const fallbackTaskRows = await supabase
       .from('tasks')
-      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence')
+      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, recurrence_days')
       .eq('family_id', familyId)
 
     taskRows = fallbackTaskRows.data
@@ -482,6 +514,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
       dueAt: task.due_at ?? null,
       priority: toTaskPriority(task.priority),
       recurrence: toTaskRecurrence(task.recurrence),
+      recurrenceDays: normalizeSelectedWeekdays(task.recurrence_days),
       requiresPhoto: Boolean(task.requires_photo),
       completionId: completion?.id ?? null,
       completionStatus: completion?.status ?? null,
@@ -499,6 +532,7 @@ const mapSupabaseFamily = async (familyId: string, recipientId: string) => {
   return {
     familyName: familyRow.name,
     familyCode: familyRow.family_code ?? null,
+    familyOnboardingCompletedAt: familyRow.onboarding_completed_at ?? null,
     members,
     tasks,
     rewards,
@@ -515,6 +549,7 @@ export function useFamilyTasks() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [familyName, setFamilyName] = useState('')
   const [familyCode, setFamilyCode] = useState<string | null>(null)
+  const [familyOnboardingCompletedAt, setFamilyOnboardingCompletedAt] = useState<string | null>(null)
   const [currentUserName, setCurrentUserName] = useState('')
   const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<'parent' | 'child' | null>(null)
@@ -538,6 +573,7 @@ export function useFamilyTasks() {
       setNotifications([])
       setFamilyName('')
       setFamilyCode(null)
+      setFamilyOnboardingCompletedAt(null)
       setActiveFamilyId(null)
     }
 
@@ -596,6 +632,7 @@ export function useFamilyTasks() {
           setNotifications([])
           setFamilyName('')
           setFamilyCode(null)
+          setFamilyOnboardingCompletedAt(null)
           setActiveFamilyId(null)
         }
         return
@@ -611,6 +648,7 @@ export function useFamilyTasks() {
           setActiveFamilyId(firstFamilyId)
           setFamilyName(resolved.familyName)
           setFamilyCode(resolved.familyCode)
+          setFamilyOnboardingCompletedAt(resolved.familyOnboardingCompletedAt)
           setMembers(resolved.members)
           setTasks(resolved.tasks)
           setRewards(resolved.rewards)
@@ -624,6 +662,7 @@ export function useFamilyTasks() {
           setNotifications([])
           setFamilyName('')
           setFamilyCode(null)
+          setFamilyOnboardingCompletedAt(null)
           setActiveFamilyId(null)
         }
       }
@@ -719,6 +758,7 @@ export function useFamilyTasks() {
 
       setFamilyName(resolved.familyName)
       setFamilyCode(resolved.familyCode)
+      setFamilyOnboardingCompletedAt(resolved.familyOnboardingCompletedAt)
       setMembers(resolved.members)
       setTasks(resolved.tasks)
       setRewards(resolved.rewards)
@@ -883,7 +923,7 @@ export function useFamilyTasks() {
     }
 
     const recurrenceAnchorDay = getMonthlyAnchorDay(task.dueAt, task.recurrence)
-    const nextDueAt = getNextRecurrenceDate(task.dueAt, task.recurrence, recurrenceAnchorDay)
+    const nextDueAt = getNextRecurrenceDate(task.dueAt, task.recurrence, recurrenceAnchorDay, task.recurrenceDays)
     if (!nextDueAt) {
       return
     }
@@ -900,6 +940,7 @@ export function useFamilyTasks() {
       due_at: nextDueAt,
       priority: task.priority,
       recurrence: task.recurrence,
+      recurrence_days: task.recurrence === 'weekly' ? task.recurrenceDays : null,
       requires_photo: task.requiresPhoto,
       recurrence_anchor_day: recurrenceAnchorDay,
       recurrence_source_task_id: task.id,
@@ -909,7 +950,7 @@ export function useFamilyTasks() {
       .from('tasks')
       .insert(nextTaskPayload)
       .select(
-        'id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, requires_photo, recurrence_anchor_day, recurrence_source_task_id',
+        'id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, recurrence_days, requires_photo, recurrence_anchor_day, recurrence_source_task_id',
       )
       .single()
 
@@ -937,6 +978,7 @@ export function useFamilyTasks() {
       dueAt: data.due_at ?? null,
       priority: toTaskPriority(data.priority),
       recurrence: toTaskRecurrence(data.recurrence),
+      recurrenceDays: normalizeSelectedWeekdays(data.recurrence_days),
       requiresPhoto: Boolean(data.requires_photo),
       completionId: null,
       completionStatus: null,
@@ -955,6 +997,7 @@ export function useFamilyTasks() {
     const trimmedTitle = draft.title.trim() || 'משימה חדשה'
     const normalizedPriority = toTaskPriority(draft.priority)
     const normalizedRecurrence = toTaskRecurrence(draft.recurrence)
+    const normalizedRecurrenceDays = normalizeSelectedWeekdays(draft.recurrenceDays)
     const dueAt = draft.dueAt && draft.dueAt.trim() ? draft.dueAt : null
     const requiresPhoto = Boolean(draft.requiresPhoto)
     const newTask: TaskItem = {
@@ -967,6 +1010,7 @@ export function useFamilyTasks() {
       dueAt,
       priority: normalizedPriority,
       recurrence: normalizedRecurrence,
+      recurrenceDays: normalizedRecurrenceDays,
       requiresPhoto,
       completionId: null,
       completionStatus: null,
@@ -994,6 +1038,7 @@ export function useFamilyTasks() {
     }
 
     const recurrenceAnchorDay = getMonthlyAnchorDay(dueAt, normalizedRecurrence)
+    const recurrenceDaysPayload = normalizedRecurrence === 'weekly' ? normalizedRecurrenceDays : null
 
     const buildInsertPayload = (withMetadata: boolean) => ({
       family_id: activeFamilyId,
@@ -1009,6 +1054,7 @@ export function useFamilyTasks() {
         ? {
             priority: normalizedPriority,
             recurrence: normalizedRecurrence,
+            recurrence_days: recurrenceDaysPayload,
             recurrence_anchor_day: recurrenceAnchorDay,
           }
         : {}),
@@ -1017,7 +1063,7 @@ export function useFamilyTasks() {
     const firstResult = await supabase
       .from('tasks')
       .insert(buildInsertPayload(true))
-      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, requires_photo')
+      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, recurrence_days, requires_photo')
 
     let resultData: TaskRowRecord[] | null
     let resultError: QueryError | null
@@ -1060,11 +1106,12 @@ export function useFamilyTasks() {
       title: serverTask.title,
       emoji: serverTask.emoji || '✅',
       xp: serverTask.xp ?? 0,
-        status: resolveTaskStatus(serverTask.status, serverTask.due_at),
+      status: resolveTaskStatus(serverTask.status, serverTask.due_at),
       memberId: serverTask.assigned_to,
       dueAt: serverTask.due_at ?? null,
       priority: toTaskPriority(serverTask.priority),
       recurrence: toTaskRecurrence(serverTask.recurrence),
+      recurrenceDays: normalizeSelectedWeekdays(serverTask.recurrence_days),
       requiresPhoto: Boolean(serverTask.requires_photo),
       completionId: null,
       completionStatus: null,
@@ -1140,6 +1187,7 @@ export function useFamilyTasks() {
     const trimmedTitle = draft.title.trim() || 'משימה חדשה'
     const normalizedPriority = toTaskPriority(draft.priority)
     const normalizedRecurrence = toTaskRecurrence(draft.recurrence)
+    const normalizedRecurrenceDays = normalizeSelectedWeekdays(draft.recurrenceDays)
     const dueAt = draft.dueAt && draft.dueAt.trim() ? draft.dueAt : null
     const requiresPhoto = Boolean(draft.requiresPhoto)
     const nextTask = {
@@ -1150,6 +1198,7 @@ export function useFamilyTasks() {
       dueAt,
       priority: normalizedPriority,
       recurrence: normalizedRecurrence,
+      recurrenceDays: normalizedRecurrenceDays,
       requiresPhoto,
     }
 
@@ -1166,6 +1215,7 @@ export function useFamilyTasks() {
                 dueAt: nextTask.dueAt,
                 priority: nextTask.priority,
                 recurrence: nextTask.recurrence,
+                recurrenceDays: nextTask.recurrenceDays,
                 requiresPhoto: nextTask.requiresPhoto,
                 completionId: task.completionId,
                 completionStatus: task.completionStatus,
@@ -1194,6 +1244,7 @@ export function useFamilyTasks() {
         ? {
             priority: nextTask.priority,
             recurrence: nextTask.recurrence,
+            recurrence_days: nextTask.recurrence === 'weekly' ? nextTask.recurrenceDays : null,
           }
         : {}),
     })
@@ -1203,7 +1254,7 @@ export function useFamilyTasks() {
       .update(buildUpdatePayload(true))
       .eq('id', taskId)
       .eq('family_id', activeFamilyId)
-      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, requires_photo')
+      .select('id, title, emoji, xp, status, assigned_to, family_id, due_at, priority, recurrence, recurrence_days, requires_photo')
 
     let resultData: TaskRowRecord[] | null
     let resultError: QueryError | null
@@ -1245,6 +1296,7 @@ export function useFamilyTasks() {
               dueAt: nextTask.dueAt,
               priority: nextTask.priority,
               recurrence: nextTask.recurrence,
+              recurrenceDays: nextTask.recurrenceDays,
               requiresPhoto: nextTask.requiresPhoto,
               completionId: task.completionId,
               completionStatus: task.completionStatus,
@@ -1266,6 +1318,7 @@ export function useFamilyTasks() {
             dueAt: updatedTask.due_at ?? null,
             priority: toTaskPriority(updatedTask.priority),
             recurrence: toTaskRecurrence(updatedTask.recurrence),
+            recurrenceDays: normalizeSelectedWeekdays(updatedTask.recurrence_days),
             requiresPhoto: Boolean(updatedTask.requires_photo),
             completionId: task.completionId,
             completionStatus: task.completionStatus,
@@ -1902,6 +1955,7 @@ export function useFamilyTasks() {
 
     setFamilyName(resolved.familyName)
     setFamilyCode(resolved.familyCode)
+    setFamilyOnboardingCompletedAt(resolved.familyOnboardingCompletedAt)
     setMembers(resolved.members)
     setTasks(resolved.tasks)
     setRewards(resolved.rewards)
@@ -1976,6 +2030,7 @@ export function useFamilyTasks() {
   const dashboard: FamilyDashboardData = {
     familyName,
     familyCode,
+    familyOnboardingCompletedAt,
     taskCount: tasks.length,
     completionRate,
     stats: {

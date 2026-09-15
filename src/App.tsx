@@ -53,6 +53,7 @@ function App() {
   const {
     familyName,
     familyCode,
+    familyOnboardingCompletedAt,
     stats,
     members,
     tasks,
@@ -1048,6 +1049,7 @@ function App() {
             <ParentDashboard
               familyName={familyName}
               familyCode={familyCode}
+              familyOnboardingCompletedAt={familyOnboardingCompletedAt}
               currentUserName={currentUserName}
               stats={stats}
               members={members}

@@ -95,6 +95,7 @@ export type TaskDraft = {
   dueAt?: string | null
   priority?: TaskPriority
   recurrence?: TaskRecurrence
+  recurrenceDays?: number[] | null
   requiresPhoto?: boolean
 }
 
@@ -139,6 +140,7 @@ export type TaskItem = {
   dueAt: string | null
   priority: TaskPriority
   recurrence: TaskRecurrence
+  recurrenceDays: number[]
   requiresPhoto: boolean
   completionId: string | null
   completionStatus: TaskCompletionStatus | null
@@ -160,6 +162,7 @@ export type DashboardStat = {
 export type FamilyDashboardData = {
   familyName: string
   familyCode: string | null
+  familyOnboardingCompletedAt: string | null
   taskCount: number
   completionRate: number
   stats: DashboardStat

@@ -18,6 +18,7 @@ import type {
 type ParentDashboardProps = {
   familyName: string
   familyCode: string | null
+  familyOnboardingCompletedAt: string | null
   currentUserName: string
   stats: {
     pendingApproval: number
@@ -42,6 +43,7 @@ type ParentDashboardProps = {
 export function ParentDashboard({
   familyName,
   familyCode,
+  familyOnboardingCompletedAt,
   currentUserName,
   stats,
   members,
@@ -65,6 +67,7 @@ export function ParentDashboard({
   const [dueTime, setDueTime] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [recurrence, setRecurrence] = useState<TaskRecurrence>('none')
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([])
   const [requiresPhoto, setRequiresPhoto] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -75,6 +78,7 @@ export function ParentDashboard({
   const [editDueTime, setEditDueTime] = useState('')
   const [editPriority, setEditPriority] = useState<TaskPriority>('medium')
   const [editRecurrence, setEditRecurrence] = useState<TaskRecurrence>('none')
+  const [editSelectedWeekdays, setEditSelectedWeekdays] = useState<number[]>([])
   const [editRequiresPhoto, setEditRequiresPhoto] = useState(false)
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
   const [rewardTitle, setRewardTitle] = useState('')
@@ -88,7 +92,12 @@ export function ParentDashboard({
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [isInviting, setIsInviting] = useState(false)
   const childMembers = members.filter((member) => member.role === 'child')
+  const [selectedOnboardingChildId, setSelectedOnboardingChildId] = useState(childMembers[0]?.id ?? '')
+  const [onboardingSuggestionMode, setOnboardingSuggestionMode] = useState(false)
+  const [onboardingSuccess, setOnboardingSuccess] = useState(false)
   const [resetPinTargetId, setResetPinTargetId] = useState(childMembers[0]?.id ?? '')
+  const isOnboardingVisible = familyOnboardingCompletedAt === null && !onboardingSuccess
+  const selectedOnboardingChildIdForFlow = childMembers.length === 1 ? childMembers[0].id : selectedOnboardingChildId || childMembers[0]?.id || ''
   const [resetPinNew, setResetPinNew] = useState('')
   const [resetPinConfirm, setResetPinConfirm] = useState('')
   const [resetPinError, setResetPinError] = useState('')
@@ -169,6 +178,25 @@ export function ParentDashboard({
     }
   }
 
+  const weekdayNames = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']
+
+  const toggleWeekday = (day: number, current: number[], setCurrent: (next: number[]) => void) => {
+    const next = current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((left, right) => left - right)
+    setCurrent(next)
+  }
+
+  const formatWeekdayList = (days: number[] | null | undefined) => {
+    if (!days || days.length === 0) {
+      return ''
+    }
+
+    return [...new Set(days)]
+      .sort((left, right) => left - right)
+      .map((day) => weekdayNames[day] ?? '')
+      .filter(Boolean)
+      .join(', ')
+  }
+
   const formatCompletionStatus = (value: TaskCompletionStatus | null) => {
     switch (value) {
       case 'submitted':
@@ -193,6 +221,31 @@ export function ParentDashboard({
       default:
         return 'ממתין'
     }
+  }
+
+  const openTaskFormForOnboarding = (preFilledTitle = '') => {
+    const targetChildId = selectedOnboardingChildIdForFlow
+    if (!targetChildId) {
+      return
+    }
+
+    setAssignedTo(targetChildId)
+    setTitle(preFilledTitle)
+    setDueDate('')
+    setDueTime('')
+    setPriority('medium')
+    setRecurrence('none')
+    setSelectedWeekdays([])
+    setRequiresPhoto(false)
+    setOnboardingSuggestionMode(true)
+    setOnboardingSuccess(false)
+
+    window.setTimeout(() => {
+      const taskForm = document.getElementById('task-form-panel')
+      taskForm?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const firstTaskField = taskForm?.querySelector('input, select, textarea') as HTMLElement | null
+      firstTaskField?.focus()
+    }, 50)
   }
 
   const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -351,6 +404,10 @@ export function ParentDashboard({
       return
     }
 
+    if (recurrence === 'weekly' && selectedWeekdays.length === 0) {
+      setSelectedWeekdays([])
+    }
+
     onAddTask({
       title,
       emoji,
@@ -359,8 +416,14 @@ export function ParentDashboard({
       dueAt: buildDueAt(dueDate, dueTime),
       priority,
       recurrence,
+      recurrenceDays: recurrence === 'weekly' ? selectedWeekdays : undefined,
       requiresPhoto,
     })
+
+    if (onboardingSuggestionMode) {
+      setOnboardingSuccess(true)
+      setOnboardingSuggestionMode(false)
+    }
 
     setTitle('')
     setEmoji('✅')
@@ -370,6 +433,7 @@ export function ParentDashboard({
     setDueTime('')
     setPriority('medium')
     setRecurrence('none')
+    setSelectedWeekdays([])
     setRequiresPhoto(false)
   }
 
@@ -381,6 +445,7 @@ export function ParentDashboard({
     setEditAssignedTo(task.memberId)
     setEditPriority(task.priority)
     setEditRecurrence(task.recurrence)
+    setEditSelectedWeekdays(task.recurrenceDays ?? [])
     setEditRequiresPhoto(task.requiresPhoto)
 
     if (task.dueAt) {
@@ -416,6 +481,7 @@ export function ParentDashboard({
       dueAt: buildDueAt(editDueDate, editDueTime),
       priority: editPriority,
       recurrence: editRecurrence,
+      recurrenceDays: editRecurrence === 'weekly' ? editSelectedWeekdays : undefined,
       requiresPhoto: editRequiresPhoto,
     })
 
@@ -485,9 +551,99 @@ export function ParentDashboard({
         <StatCard label="XP" value={stats.totalXp.toLocaleString('he-IL')} accent="bg-violet-100 text-violet-700" />
       </div>
 
-      <div className="flex justify-end">
-        <AddChildForm onChildCreated={onChildCreated} />
-      </div>
+      {isOnboardingVisible && (
+        <section className="panel-card p-5">
+          <div className="space-y-4">
+            <h3 className="text-lg font-black text-slate-900">
+              👋 ברוכים הבאים ל-Family Tasks!
+              <br />
+              בואו נגדיר את המשימה הראשונה של המשפחה.
+            </h3>
+
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-slate-700">👦 למי נרצה להוסיף משימה?</p>
+
+              {childMembers.length === 0 ? (
+                <AddChildForm
+                  onChildCreated={async () => {
+                    await onChildCreated()
+                    setSelectedOnboardingChildId(childMembers[0]?.id ?? '')
+                  }}
+                />
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {childMembers.map((member) => {
+                    const isSelected = selectedOnboardingChildIdForFlow === member.id
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOnboardingChildId(member.id)
+                        }}
+                        className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                          isSelected
+                            ? 'border-indigo-600 bg-indigo-600 text-white'
+                            : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300'
+                        }`}
+                      >
+                        {member.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {(childMembers.length > 0 && selectedOnboardingChildIdForFlow) && (
+              <div className="space-y-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+                <p className="text-sm font-semibold text-indigo-800">מעולה! עכשיו בואו נוסיף משימה.</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    '🧹 סידור חדר',
+                    '🍽️ פינוי מדיח',
+                    '🛏️ סידור מיטה',
+                    '🧸 סידור צעצועים',
+                    '🗑️ הורדת זבל',
+                    '📚 הכנת תיק',
+                    '➕ משימה אחרת',
+                  ].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => {
+                        if (suggestion === '➕ משימה אחרת') {
+                          openTaskFormForOnboarding('')
+                          return
+                        }
+
+                        openTaskFormForOnboarding(suggestion.replace(/^\S+\s/, '').trim())
+                      }}
+                      className="rounded-full border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {onboardingSuccess && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          🎉 מעולה!
+          <br />
+          המשימה הראשונה של המשפחה נוצרה.
+        </div>
+      )}
+
+      {!isOnboardingVisible && (
+        <div className="flex justify-end">
+          <AddChildForm onChildCreated={onChildCreated} />
+        </div>
+      )}
 
       <section className="panel-card p-5">
         <div className="flex items-center justify-between gap-3">
@@ -784,7 +940,7 @@ export function ParentDashboard({
         </div>
       </section>
 
-      <form onSubmit={handleSubmit} className="panel-card p-5">
+      <form id="task-form-panel" onSubmit={handleSubmit} className="panel-card p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900">הוספת משימה</h3>
           <span className="metric-pill bg-sky-100 text-sky-700">לשבוע זה</span>
@@ -880,9 +1036,9 @@ export function ParentDashboard({
               onChange={(event) => setRecurrence(event.target.value as TaskRecurrence)}
               className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 outline-none transition focus:border-indigo-400 focus:bg-white"
             >
-              <option value="none">ללא</option>
-              <option value="daily">יומית</option>
-              <option value="weekly">שבועית</option>
+              <option value="none">חד-פעמית</option>
+              <option value="daily">כל יום</option>
+              <option value="weekly">ימים מסוימים</option>
               <option value="monthly">חודשית</option>
             </select>
           </label>
@@ -896,6 +1052,42 @@ export function ParentDashboard({
             />
             נדרשת תמונה
           </label>
+        </div>
+
+        {recurrence === 'weekly' && (
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-semibold tracking-[0.08em] text-slate-500">ימים נבחרים</p>
+            <div className="grid grid-cols-7 gap-2">
+              {weekdayNames.map((label, dayIndex) => {
+                const isSelected = selectedWeekdays.includes(dayIndex)
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleWeekday(dayIndex, selectedWeekdays, setSelectedWeekdays)}
+                    className={`rounded-xl border px-2 py-3 text-sm font-bold transition ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+            {selectedWeekdays.length > 0 && (
+              <p className="mt-2 text-xs text-slate-600">החזרה תתבצע ב-{formatWeekdayList(selectedWeekdays)}</p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-2">
+          {recurrence === 'weekly' && selectedWeekdays.length > 0 && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+              🔁 {formatWeekdayList(selectedWeekdays)}
+            </span>
+          )}
         </div>
 
         <button
@@ -1018,7 +1210,10 @@ export function ParentDashboard({
               const isEditing = editingTaskId === task.id
               const dueLabel = formatDueDateTime(task.dueAt)
               const priorityLabel = formatPriority(task.priority)
-              const recurrenceLabel = formatRecurrence(task.recurrence)
+              const recurrenceLabel =
+                task.recurrence === 'weekly' && task.recurrenceDays.length > 0
+                  ? `🔁 ${formatWeekdayList(task.recurrenceDays)}`
+                  : formatRecurrence(task.recurrence)
               const completionLabel = formatCompletionStatus(task.completionStatus)
 
               return (
@@ -1133,13 +1328,37 @@ export function ParentDashboard({
                           onChange={(event) => setEditRecurrence(event.target.value as TaskRecurrence)}
                           className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
                         >
-                          <option value="none">ללא</option>
-                          <option value="daily">יומית</option>
-                          <option value="weekly">שבועית</option>
+                          <option value="none">חד-פעמית</option>
+                          <option value="daily">כל יום</option>
+                          <option value="weekly">ימים מסוימים</option>
                           <option value="monthly">חודשית</option>
                         </select>
                       </div>
-                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                      {editRecurrence === 'weekly' && (
+                        <div className="mt-2">
+                          <p className="mb-2 text-[10px] font-semibold tracking-[0.08em] text-slate-500">ימים נבחרים</p>
+                          <div className="grid grid-cols-7 gap-1">
+                            {weekdayNames.map((label, dayIndex) => {
+                              const isSelected = editSelectedWeekdays.includes(dayIndex)
+                              return (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => toggleWeekday(dayIndex, editSelectedWeekdays, setEditSelectedWeekdays)}
+                                  className={`rounded-md border px-2 py-2 text-xs font-bold ${
+                                    isSelected
+                                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
                         <input
                           type="checkbox"
                           checked={editRequiresPhoto}
