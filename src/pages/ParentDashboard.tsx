@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { StatCard } from '../components/StatCard'
 import { AddChildForm } from '../components/AddChildForm'
 import { getSupabaseClient } from '../services/supabase'
@@ -95,14 +95,47 @@ export function ParentDashboard({
   const [selectedOnboardingChildId, setSelectedOnboardingChildId] = useState(childMembers[0]?.id ?? '')
   const [onboardingSuggestionMode, setOnboardingSuggestionMode] = useState(false)
   const [onboardingSuccess, setOnboardingSuccess] = useState(false)
+  const [showFirstTaskSuccessModal, setShowFirstTaskSuccessModal] = useState(false)
+  const onboardingCardRef = useRef<HTMLElement | null>(null)
+  const hasAutoScrolledToOnboardingRef = useRef(false)
   const [resetPinTargetId, setResetPinTargetId] = useState(childMembers[0]?.id ?? '')
   const isOnboardingVisible = familyOnboardingCompletedAt === null && !onboardingSuccess
-  const selectedOnboardingChildIdForFlow = childMembers.length === 1 ? childMembers[0].id : selectedOnboardingChildId || childMembers[0]?.id || ''
+  const selectedOnboardingChildIdForFlow =
+    childMembers.length === 0
+      ? ''
+      : childMembers.length === 1
+        ? childMembers[0].id
+        : selectedOnboardingChildId && childMembers.some((member) => member.id === selectedOnboardingChildId)
+          ? selectedOnboardingChildId
+          : childMembers[0].id
   const [resetPinNew, setResetPinNew] = useState('')
   const [resetPinConfirm, setResetPinConfirm] = useState('')
   const [resetPinError, setResetPinError] = useState('')
   const [resetPinSuccess, setResetPinSuccess] = useState('')
   const [isResettingPin, setIsResettingPin] = useState(false)
+
+useEffect(() => {
+  if (!isOnboardingVisible || hasAutoScrolledToOnboardingRef.current) {
+    return
+  }
+
+  const onboardingCard = onboardingCardRef.current
+
+  if (!onboardingCard) {
+    return
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    onboardingCard.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+
+    hasAutoScrolledToOnboardingRef.current = true
+  }, 500)
+
+  return () => window.clearTimeout(timeoutId)
+}, [isOnboardingVisible])
 
   const handleCopyFamilyCode = async () => {
     if (!familyCode) {
@@ -242,10 +275,37 @@ export function ParentDashboard({
 
     window.setTimeout(() => {
       const taskForm = document.getElementById('task-form-panel')
-      taskForm?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      const firstTaskField = taskForm?.querySelector('input, select, textarea') as HTMLElement | null
+      if (!taskForm) {
+        return
+      }
+
+      taskForm.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const firstTaskField = taskForm.querySelector('input, select, textarea') as HTMLElement | null
       firstTaskField?.focus()
     }, 50)
+  }
+
+  const handleChildCreatedSuccessfully = async (createdChildId?: string) => {
+    await onChildCreated()
+
+    let nextChildId = createdChildId
+    if (!nextChildId) {
+      const supabase = getSupabaseClient()
+      const { data: latestChildMemberships, error: latestChildError } = await supabase
+        .from('family_members')
+        .select('user_id')
+        .eq('role', 'child')
+        .order('joined_at', { ascending: false })
+        .limit(20)
+
+      if (!latestChildError && latestChildMemberships && latestChildMemberships.length > 0) {
+        nextChildId = latestChildMemberships[0].user_id
+      }
+    }
+
+    if (nextChildId) {
+      setSelectedOnboardingChildId(nextChildId)
+    }
   }
 
   const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -423,6 +483,7 @@ export function ParentDashboard({
     if (onboardingSuggestionMode) {
       setOnboardingSuccess(true)
       setOnboardingSuggestionMode(false)
+      setShowFirstTaskSuccessModal(true)
     }
 
     setTitle('')
@@ -552,7 +613,7 @@ export function ParentDashboard({
       </div>
 
       {isOnboardingVisible && (
-        <section className="panel-card p-5">
+        <section ref={onboardingCardRef} className="panel-card p-5">
           <div className="space-y-4">
             <h3 className="text-lg font-black text-slate-900">
               👋 ברוכים הבאים ל-Family Tasks!
@@ -566,8 +627,7 @@ export function ParentDashboard({
               {childMembers.length === 0 ? (
                 <AddChildForm
                   onChildCreated={async () => {
-                    await onChildCreated()
-                    setSelectedOnboardingChildId(childMembers[0]?.id ?? '')
+                    await handleChildCreatedSuccessfully()
                   }}
                 />
               ) : (
@@ -631,11 +691,25 @@ export function ParentDashboard({
         </section>
       )}
 
-      {onboardingSuccess && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-          🎉 מעולה!
-          <br />
-          המשימה הראשונה של המשפחה נוצרה.
+      {showFirstTaskSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-[28px] border border-emerald-200 bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl">
+              🎉
+            </div>
+            <h3 className="text-2xl font-black text-slate-900">מעולה!</h3>
+            <p className="mt-2 text-base font-medium text-slate-700">המשימה הראשונה של המשפחה נוצרה.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setShowFirstTaskSuccessModal(false)
+                setOnboardingSuccess(true)
+              }}
+              className="mt-5 w-full rounded-full bg-emerald-600 px-4 py-3 text-base font-bold text-white transition hover:bg-emerald-500"
+            >
+              מעולה
+            </button>
+          </div>
         </div>
       )}
 
